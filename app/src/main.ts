@@ -169,11 +169,12 @@ async function createEscrow(expectedAddress?: string): Promise<void> {
         note("this emulator is older than v0.0.8, so refund (CHECKTIME) will be rejected");
     }
     if (expectedAddress && prepared.contract.address !== expectedAddress) {
+        const rebuilt = prepared.contract.address;
         prepared = undefined;
         coins = [];
         fingerprint = "";
         contractSection.hidden = true;
-        throw new Error("the oracle and exit keys in this page do not rebuild that escrow");
+        throw new RebuildMismatch(rebuilt, expectedAddress);
     }
     saveEscrow({
         address: prepared.contract.address,
@@ -200,26 +201,42 @@ async function loadByAddress(address: string): Promise<void> {
         amountInput.value = found.amount;
         timeoutInput.value = found.timeout;
         exitInput.value = found.exit;
-        await createEscrow(found.address);
-        loadStatus.textContent = `Resumed ${found.address}.`;
-        note(`resumed ${found.address}`);
+    }
+    try {
+        await createEscrow(trimmed);
+    } catch (error) {
+        const rebuilt = error instanceof RebuildMismatch ? error.rebuilt : undefined;
+        const reason = error instanceof Error ? error.message : String(error);
+        await showUnmatched(trimmed, rebuilt, reason);
         return;
     }
-    const watched = await coinsForAddress(selectedNetwork(), trimmed);
+    const line = found
+        ? `Resumed ${trimmed} from the saved parameters.`
+        : `Rebuilt ${trimmed} from the contract artifact and the parameters on this page.`;
+    loadStatus.textContent = line;
+    note(line);
+}
+
+async function showUnmatched(address: string, rebuilt: string | undefined, reason: string): Promise<void> {
+    const watched = await coinsForAddress(selectedNetwork(), address);
     prepared = undefined;
     fingerprint = "";
     coins = watched;
-    addressCode.textContent = trimmed;
+    addressCode.textContent = address;
     contractSection.hidden = false;
     fillCoinSelect();
     balanceLine.textContent = describeCoins();
     exitClock.textContent = "";
     hopsLine.textContent = "";
     const unrolled = watched.some((coin) => coin.isUnrolled);
-    const line =
+    const coinsLine =
         watched.length === 0
             ? "The indexer has no unspent coins at that address."
-            : `${describeCoins()} ${unrolled ? "The funding transaction is on Bitcoin." : "It is still off chain."} This browser does not have the contract that built the address, so the spend buttons stay off until you restore the key file that created it.`;
+            : `${describeCoins()} ${unrolled ? "The funding transaction is on Bitcoin." : "It is still off chain."}`;
+    const compiled = rebuilt
+        ? `Compiling the artifact with these addresses, amount, refund time, exit delay, and keys produced ${rebuilt}.`
+        : `The artifact could not be compiled with the parameters on this page: ${reason}`;
+    const line = `${coinsLine} ${compiled} Change a parameter and load again until the compiled address is the one you pasted.`;
     loadStatus.textContent = line;
     note(line);
 }
@@ -549,6 +566,15 @@ function syncButtons(): void {
     cancelButton.disabled = !ready;
     unilateralButton.disabled = !ready || !exitOpen;
     unrollButton.disabled = !ready;
+}
+
+class RebuildMismatch extends Error {
+    readonly rebuilt: string;
+
+    constructor(rebuilt: string, expected: string) {
+        super(`compiled ${rebuilt}, which is not ${expected}`);
+        this.rebuilt = rebuilt;
+    }
 }
 
 function note(message: string): void {

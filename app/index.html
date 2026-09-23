@@ -140,9 +140,11 @@
             <button id="load-escrow" type="button">Load escrow</button>
             <p id="load-status" class="hint"></p>
             <p class="hint">
-                Paste an escrow address. If this browser created it, the contract
-                comes back with the stored oracle. Otherwise the coins at that
-                address are shown from the indexer.
+                Load compiles the contract artifact with the buyer and seller
+                addresses, amount, refund time, exit delay, and the keys on this
+                page. That taproot has to equal the pasted address. A saved record
+                fills the fields. If it does not match, the indexer coins are still
+                listed and the compiled address is shown.
             </p>
         </section>
 
