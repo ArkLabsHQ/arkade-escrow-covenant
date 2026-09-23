@@ -271,6 +271,7 @@ export function useEscrow() {
     }
 
     function paintFacts(): void {
+        if (modelRef.current.torn && !preparedRef.current) return;
         const current = modelRef.current;
         const view = viewFor(coinsRef.current, current.timeout);
         const stale = !!preparedRef.current && fingerprintRef.current !== currentFingerprint();
@@ -608,29 +609,52 @@ export function useEscrow() {
         }
     }
 
+    function explainUnmatched(rebuilt: string | undefined, reason: string): void {
+        const copy = unmatchedCopy(rebuilt, reason);
+        patch({
+            torn: true,
+            loadStatus: copy.detail,
+            balance: copy.headline,
+            refundWhen: "",
+            exitClock: "",
+            hops: "",
+        });
+    }
+
+    async function retryMatch(): Promise<void> {
+        const address = modelRef.current.funding.trim();
+        if (!address) throw new Error("Missing the escrow address.");
+        try {
+            await createEscrow(address);
+        } catch (error) {
+            const rebuilt = error instanceof RebuildMismatch ? error.rebuilt : undefined;
+            const reason = error instanceof Error ? error.message : String(error);
+            explainUnmatched(rebuilt, reason);
+        }
+    }
+
     async function showUnmatched(address: string, rebuilt: string | undefined, reason: string): Promise<void> {
-        const watched = await coinsForAddress(selectedNetwork(), address);
+        const watched = await coinsForAddress(selectedNetwork(), address).catch(() => []);
         preparedRef.current = undefined;
         fingerprintRef.current = "";
         coinsRef.current = watched;
-        const compiled = rebuilt
-            ? `These details belong to ${shortAddress(rebuilt)}, not this escrow.`
-            : `These details could not be compiled. ${reason}`;
+        const copy = unmatchedCopy(rebuilt, reason);
         patch({
             funding: address.trim(),
-            loadStatus: compiled,
+            loadStatus: copy.detail,
+            balance: copy.headline,
+            refundWhen: "",
             torn: true,
             exitClock: "",
             hops: "",
         });
-        paintFacts();
         showContract();
         fillCoinSelect();
         statusByAddress.current.set(address, "Parameters differ");
         closeComposer();
         syncBackup();
         paintRail();
-        note(compiled);
+        note(copy.detail);
     }
 
     function payouts(current: PreparedEscrow): { buyer: Uint8Array; seller: Uint8Array } {
@@ -833,6 +857,9 @@ export function useEscrow() {
         openEscrow(address: string) {
             void run("load", () => loadByAddress(address));
         },
+        retryMatch() {
+            void run("match", retryMatch);
+        },
         release() {
             void run("unlock", unlock);
         },
@@ -872,6 +899,22 @@ class RebuildMismatch extends Error {
 
 export function loadMismatchMessage(rebuilt: string): string {
     return `These details compile to ${shortAddress(rebuilt)}, not the address you entered. Check the buyer, seller, amount, refund time, exit delay, network, and keys.`;
+}
+
+/** Headline and the specific reason when an opened address does not rebuild. */
+export function unmatchedCopy(rebuilt: string | undefined, reason: string): { headline: string; detail: string } {
+    if (rebuilt) {
+        return {
+            headline: "These details belong to a different address.",
+            detail: loadMismatchMessage(rebuilt),
+        };
+    }
+    const trimmed = reason.trim();
+    const sentence = trimmed ? trimmed.charAt(0).toUpperCase() + trimmed.slice(1) : "These details could not be compiled.";
+    return {
+        headline: "These details do not match this address.",
+        detail: sentence.replace(/\b[A-Za-z0-9]{20,}\b/g, (token) => shortAddress(token)),
+    };
 }
 
 function readableError(error: unknown): string {

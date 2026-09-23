@@ -229,7 +229,40 @@ export function App() {
                             />
 
                             {model.torn ? (
-                                <p className="hint">Release and refund stay off until these details match this address.</p>
+                                <form
+                                    className="stack-form"
+                                    onSubmit={(event) => {
+                                        event.preventDefault();
+                                        actions.retryMatch();
+                                    }}
+                                >
+                                    <div className="field">
+                                        <span>Network</span>
+                                        <div className="segment" role="group" aria-label="Network">
+                                            {networks.map((network) => (
+                                                <button
+                                                    key={network.name}
+                                                    type="button"
+                                                    aria-pressed={model.network === network.name}
+                                                    onClick={() => actions.setNetwork(network.name)}
+                                                >
+                                                    {network.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <TermsFields
+                                        model={model}
+                                        amountRef={amountRef}
+                                        showExit
+                                        onField={actions.setField}
+                                        onAmount={actions.chooseAmount}
+                                        onCustom={actions.chooseCustom}
+                                    />
+                                    <button className="btn primary wide" type="submit" disabled={model.busy}>
+                                        Match this address
+                                    </button>
+                                </form>
                             ) : (
                                 <div className="payout">
                                     <h2>Pay out</h2>

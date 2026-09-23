@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { bech32 } from "@scure/base";
 
-import { loadMismatchMessage, shortAddress } from "./use-escrow.ts";
+import { loadMismatchMessage, shortAddress, unmatchedCopy } from "./use-escrow.ts";
 import { escrowsFromBackup, parseEscrowList, secretToKey, storedKeysFromText, upsertEscrow } from "./spend.ts";
 
 const hex = (fill: string) => fill.repeat(64).slice(0, 64);
@@ -81,6 +81,15 @@ describe("loadMismatchMessage", () => {
             true,
         );
         assert.match(loadMismatchMessage(rebuilt), /not the address you entered/);
+    });
+});
+
+describe("unmatchedCopy", () => {
+    it("says an invalid address in one sentence", () => {
+        assert.deepEqual(unmatchedCopy(undefined, "that is not an Arkade address"), {
+            headline: "These details do not match this address.",
+            detail: "That is not an Arkade address",
+        });
     });
 });
 
