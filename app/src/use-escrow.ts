@@ -26,7 +26,8 @@ import {
     storedKeysFromText,
     minimumExitDelay,
     prepareEscrow,
-    RELEASE_LABEL,
+    arkadeAddressUrl,
+    escrowView,
     listUnrollHops,
     secretToKey,
     spendCancel,
@@ -42,8 +43,6 @@ export const AMOUNT_PRESETS = [1_000, 5_000, 10_000, 50_000] as const;
 export type RailItem = {
     address: string;
     amount: string;
-    buyer: string;
-    seller: string;
     status: string;
     current: boolean;
 };
@@ -119,10 +118,21 @@ function markCovered(addresses: string[]): void {
     localStorage.setItem(COVERED, JSON.stringify([...new Set([...covered(), ...addresses])]));
 }
 
-function statusWord(watched: VirtualCoin[]): string {
-    if (watched.length === 0) return "Waiting for funds";
-    if (watched.some((coin) => coin.isUnrolled)) return "On Bitcoin";
-    return "Funded";
+function viewFor(watched: VirtualCoin[], timeout: string) {
+    const parsed = Date.parse(timeout);
+    const when = Number.isNaN(parsed)
+        ? ""
+        : new Date(parsed).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    return escrowView({
+        coins: watched.length,
+        unrolled: watched.some((coin) => coin.isUnrolled),
+        refundDue: !Number.isNaN(parsed) && parsed <= Date.now(),
+        when,
+    });
+}
+
+function statusWord(watched: VirtualCoin[], timeout: string): string {
+    return viewFor(watched, timeout).status;
 }
 
 function exitSentence(minedAt: number | null, open: boolean, exitSeconds: bigint): string {
@@ -260,18 +270,13 @@ export function useEscrow() {
 
     function paintFacts(): void {
         const current = modelRef.current;
-        const parsed = Date.parse(current.timeout);
-        let refundWhen = "";
-        if (!Number.isNaN(parsed)) {
-            refundWhen =
-                parsed <= Date.now()
-                    ? "You can refund the buyer now."
-                    : `You can refund the buyer after ${new Date(parsed).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`;
-        }
+        const view = viewFor(coinsRef.current, current.timeout);
+        const stale = !!preparedRef.current && fingerprintRef.current !== currentFingerprint();
         patch({
             buyerView: current.buyer.trim(),
             sellerView: current.seller.trim(),
-            refundWhen,
+            balance: stale ? "The form changed. Create the escrow again before spending." : describeCoins(),
+            refundWhen: stale ? "" : view.refund,
         });
     }
 
@@ -283,8 +288,6 @@ export function useEscrow() {
             rail: list.map((escrow) => ({
                 address: escrow.address,
                 amount: escrow.amount,
-                buyer: escrow.buyer,
-                seller: escrow.seller,
                 status: statusByAddress.current.get(escrow.address) ?? "Checking",
                 current: escrow.address === open,
             })),
@@ -305,16 +308,15 @@ export function useEscrow() {
     }
 
     function syncButtons(): void {
-        const ready =
-            !busyRef.current &&
-            coinsRef.current.length > 0 &&
-            !!preparedRef.current &&
-            fingerprintRef.current === currentFingerprint();
+        const armed =
+            !busyRef.current && !!preparedRef.current && fingerprintRef.current === currentFingerprint();
+        const view = viewFor(coinsRef.current, modelRef.current.timeout);
+        const hasCoins = armed && coinsRef.current.length > 0;
         patch({
-            completeDisabled: !ready,
-            cancelDisabled: !ready,
-            unrollDisabled: !ready,
-            exitDisabled: !ready || !exitOpenRef.current,
+            completeDisabled: !armed || !view.release,
+            cancelDisabled: !armed || !view.refundNow,
+            unrollDisabled: !hasCoins,
+            exitDisabled: !hasCoins || !exitOpenRef.current,
         });
     }
 
@@ -342,17 +344,13 @@ export function useEscrow() {
     function describeCoins(): string {
         if (coinsRef.current.length === 0) return `Send ${formatSats(modelRef.current.amount)} sats from Arkade.Money.`;
         const total = coinsRef.current.reduce((sum, coin) => sum + coin.value, 0);
+        if (coinsRef.current.some((coin) => coin.isUnrolled)) return `${formatSats(total)} sats are on Bitcoin.`;
         return `${formatSats(total)} sats are in this escrow.`;
     }
 
     function markStale(): void {
         if (!preparedRef.current) return;
-        patch({
-            balance:
-                fingerprintRef.current === currentFingerprint()
-                    ? describeCoins()
-                    : "The form changed. Create the escrow again before spending.",
-        });
+        paintFacts();
         void updateExitClock();
     }
 
@@ -425,11 +423,14 @@ export function useEscrow() {
         coinsRef.current = await preparedRef.current.contract.getUtxos();
         fillCoinSelect();
         if (preparedRef.current) {
-            statusByAddress.current.set(preparedRef.current.contract.address, statusWord(coinsRef.current));
+            statusByAddress.current.set(
+                preparedRef.current.contract.address,
+                statusWord(coinsRef.current, modelRef.current.timeout),
+            );
         }
         paintRail();
+        paintFacts();
         const total = coinsRef.current.reduce((sum, coin) => sum + coin.value, 0);
-        patch({ balance: describeCoins() });
         if (announce && coinsRef.current.length > 0) note(`found ${formatSats(total)} sats`);
         await updateExitClock();
     }
@@ -441,11 +442,14 @@ export function useEscrow() {
             list.map(async (escrow) => {
                 if (statusByAddress.current.get(escrow.address) === "Parameters differ") return;
                 if (preparedRef.current?.contract.address === escrow.address && fingerprintRef.current === currentFingerprint()) {
-                    statusByAddress.current.set(escrow.address, statusWord(coinsRef.current));
+                    statusByAddress.current.set(escrow.address, statusWord(coinsRef.current, escrow.timeout));
                     return;
                 }
                 try {
-                    statusByAddress.current.set(escrow.address, statusWord(await coinsForAddress(demo, escrow.address)));
+                    statusByAddress.current.set(
+                        escrow.address,
+                        statusWord(await coinsForAddress(demo, escrow.address), escrow.timeout),
+                    );
                 } catch {
                     statusByAddress.current.set(escrow.address, "Not checked");
                 }
@@ -543,9 +547,6 @@ export function useEscrow() {
         patch({ funding: preparedRef.current.contract.address, torn: false, loadStatus: "" });
         paintFacts();
         showContract();
-        note(
-            `escrow ${preparedRef.current.contract.address} · emulator ${preparedRef.current.emulatorVersion || "unknown"} · oracle signs "${RELEASE_LABEL}"`,
-        );
         if (preparedRef.current.emulatorVersion.startsWith("v0.0.7")) {
             note("this emulator is older than v0.0.8, so refund will be rejected");
         }
@@ -573,10 +574,6 @@ export function useEscrow() {
         syncBackup();
         await refreshCoins(true);
         void refreshRailStatuses();
-        if (!expectedAddress) {
-            note("Escrow created.");
-            toast.success("Escrow created.");
-        }
     }
 
     async function loadByAddress(address: string): Promise<void> {
@@ -604,9 +601,6 @@ export function useEscrow() {
             return;
         }
         patch({ loadStatus: "" });
-        const message = found ? "Opened this escrow." : "Rebuilt this escrow from these details.";
-        note(message);
-        toast.success(message);
     }
 
     async function showUnmatched(address: string, rebuilt: string | undefined, reason: string): Promise<void> {
@@ -614,20 +608,11 @@ export function useEscrow() {
         preparedRef.current = undefined;
         fingerprintRef.current = "";
         coinsRef.current = watched;
-        const total = watched.reduce((sum, coin) => sum + coin.value, 0);
-        const unrolled = watched.some((coin) => coin.isUnrolled);
-        const coinsLine =
-            watched.length === 0
-                ? "Nothing has been sent here yet."
-                : unrolled
-                  ? `${formatSats(total)} sats are on Bitcoin.`
-                  : `${formatSats(total)} sats are here, still off chain.`;
         const compiled = rebuilt
             ? `These details belong to ${shortAddress(rebuilt)}, not this escrow.`
             : `These details could not be compiled. ${reason}`;
         patch({
             funding: address.trim(),
-            balance: coinsLine,
             loadStatus: compiled,
             torn: true,
             exitClock: "",
@@ -659,7 +644,6 @@ export function useEscrow() {
         const { seller, buyer } = payouts(current);
         const txid = await spendComplete(current, coin, seller, buyer, readAmount());
         note(`Released to the seller. ${shortAddress(txid)}`);
-        toast.success("Released to the seller.");
         await refreshCoins(true);
     }
 
@@ -669,7 +653,6 @@ export function useEscrow() {
         const { buyer } = payouts(current);
         const txid = await spendCancel(current, coin, buyer);
         note(`Refunded the buyer. ${shortAddress(txid)}`);
-        toast.success("Refunded the buyer.");
         await refreshCoins(true);
     }
 
@@ -677,16 +660,9 @@ export function useEscrow() {
         const current = requirePrepared();
         const coin = selectedCoin();
         const progress = await unrollOnce(current.demo, coin, feeKeyRef.current);
-        if (progress.kind === "done") {
-            note(`Unrolled. ${shortAddress(progress.txid)}`);
-            toast.success("Unrolled onto Bitcoin.");
-        } else if (progress.kind === "waiting") {
-            note(`Waiting for ${shortAddress(progress.txid)} to be mined.`);
-            toast("Waiting for Bitcoin to mine the previous transaction.");
-        } else {
-            note(`Broadcast ${shortAddress(progress.txid)}`);
-            toast.success("Broadcast the next unroll transaction.");
-        }
+        if (progress.kind === "done") note(`Unrolled. ${shortAddress(progress.txid)}`);
+        else if (progress.kind === "waiting") note(`Waiting for ${shortAddress(progress.txid)} to be mined.`);
+        else note(`Broadcast ${shortAddress(progress.txid)}`);
         hopCache.current.at = 0;
         await showFeeWallet();
         await updateExitClock();
@@ -704,7 +680,6 @@ export function useEscrow() {
         );
         const txid = await spendExitOnchain(current, coin, seller.address);
         note(`On-chain exit to ${shortAddress(seller.address)}. ${shortAddress(txid)}`);
-        toast.success("Exited on chain.");
         await refreshCoins(true);
     }
 
@@ -724,7 +699,6 @@ export function useEscrow() {
         syncEntry();
         const which = buyerText && sellerText ? "buyer and seller keys" : buyerText ? "buyer key" : "seller key";
         note(`Replaced the ${which}.`);
-        toast.success("Keys updated.");
     }
 
     function downloadKeys(): void {
@@ -738,7 +712,6 @@ export function useEscrow() {
         markCovered(readEscrows().map((escrow) => escrow.address));
         syncBackup();
         note("Saved arkade-escrow-keys.json. Keep that file. It restores this escrow in another browser.");
-        toast.success("Saved a copy.");
     }
 
     async function restoreKeys(file: File): Promise<void> {
@@ -763,7 +736,6 @@ export function useEscrow() {
             return;
         }
         note("Restored the oracle and exit keys. Paste an escrow address to resume.");
-        toast.success("Restored the key file.");
     }
 
     async function run(label: string, action: () => Promise<void>): Promise<void> {
@@ -876,11 +848,6 @@ export function useEscrow() {
             patch({ coinId });
             void updateExitClock();
         },
-        copy(value: string) {
-            if (!value) return;
-            void navigator.clipboard.writeText(value);
-            toast("Copied");
-        },
     };
 
     return { model, actions, networks: DEMO_NETWORKS };
@@ -903,4 +870,11 @@ export function shortAddress(value: string): string {
 
 export function formatSats(value: bigint | number | string): string {
     return BigInt(value).toLocaleString("en-US");
+}
+
+export function fundingUrl(network: string, address: string): string {
+    const trimmed = address.trim();
+    if (!trimmed) return "";
+    const demo = DEMO_NETWORKS.find((item) => item.name === network) ?? DEMO_NETWORKS[0];
+    return arkadeAddressUrl(demo.spaceUrl, trimmed);
 }

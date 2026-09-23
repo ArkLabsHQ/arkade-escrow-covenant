@@ -1,11 +1,11 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Accordion } from "@base-ui/react/accordion";
 import { Dialog } from "@base-ui/react/dialog";
 import { Toggle } from "@base-ui/react/toggle";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { Toaster } from "sonner";
 
-import { AMOUNT_PRESETS, formatSats, shortAddress, useEscrow, type RailItem } from "./use-escrow.ts";
+import { AMOUNT_PRESETS, formatSats, fundingUrl, shortAddress, useEscrow, type RailItem } from "./use-escrow.ts";
 
 export function App() {
     const { model, actions, networks } = useEscrow();
@@ -259,11 +259,11 @@ export function App() {
                                 </div>
                             )}
 
-                            <div className="group">
-                                <AddressRow label="Funding" value={model.funding} onCopy={actions.copy} />
-                                <AddressRow label="Buyer" value={model.buyerView} onCopy={actions.copy} />
-                                <AddressRow label="Seller" value={model.sellerView} onCopy={actions.copy} />
-                            </div>
+                            <AddressRow
+                                label="Funding"
+                                value={model.funding}
+                                href={fundingUrl(model.network, model.funding)}
+                            />
 
                             {model.torn ? (
                                 <p className="hint">Release and refund stay off until these details match this address.</p>
@@ -342,11 +342,7 @@ export function App() {
                                             <span>Fee</span>
                                             <span className="row-value">
                                                 {model.feeAddress ? <span className="addr">{shortAddress(model.feeAddress)}</span> : null}
-                                                {model.feeAddress ? (
-                                                    <button className="copy" type="button" onClick={() => actions.copy(model.feeAddress)}>
-                                                        Copy
-                                                    </button>
-                                                ) : null}
+                                                {model.feeAddress ? <CopyButton value={model.feeAddress} /> : null}
                                                 <span>{model.feeBalance}</span>
                                             </span>
                                         </div>
@@ -362,9 +358,9 @@ export function App() {
                                     </Accordion.Header>
                                     <Accordion.Panel className="more-panel">
                                         <div className="group">
-                                            <AddressRow label="Buyer" value={model.keyBuyer} onCopy={actions.copy} />
-                                            <AddressRow label="Seller" value={model.keySeller} onCopy={actions.copy} />
-                                            <AddressRow label="Oracle" value={model.oracle} onCopy={actions.copy} />
+                                            <AddressRow label="Buyer" value={model.keyBuyer} />
+                                            <AddressRow label="Seller" value={model.keySeller} />
+                                            <AddressRow label="Oracle" value={model.oracle} />
                                         </div>
                                         <label className="field">
                                             <span>Buyer key</span>
@@ -463,36 +459,43 @@ function Ticket({ escrow, onOpen }: { escrow: RailItem; onOpen: () => void }) {
                 </span>
                 <span className={`pill ${pillKind(escrow.status)}`}>{escrow.status}</span>
             </span>
-            <span className="card-parties">
-                {shortAddress(escrow.buyer)}
-                <span> to </span>
-                {shortAddress(escrow.seller)}
-            </span>
         </button>
     );
 }
 
-function AddressRow({
-    label,
-    value,
-    onCopy,
-}: {
-    label: string;
-    value: string;
-    onCopy: (value: string) => void;
-}) {
+function AddressRow({ label, value, href }: { label: string; value: string; href?: string }) {
     return (
-        <div className="row">
+        <div className={href ? "row funding-row" : "row"}>
             <span className="row-label">{label}</span>
             <span className="row-value">
                 <span className="addr">{value ? shortAddress(value) : "Not set"}</span>
-                {value ? (
-                    <button className="copy" type="button" onClick={() => onCopy(value)}>
-                        Copy
-                    </button>
+                {value ? <CopyButton value={value} /> : null}
+                {href ? (
+                    <a className="icon-link" href={href} target="_blank" rel="noreferrer" aria-label="Open in Arkade explorer">
+                        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                            <path d="M4.5 11.5 11.5 4.5M6 4.5h5.5V10" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                        </svg>
+                    </a>
                 ) : null}
             </span>
         </div>
+    );
+}
+
+function CopyButton({ value }: { value: string }) {
+    const [copied, setCopied] = useState(false);
+    return (
+        <button
+            className="copy"
+            type="button"
+            onClick={() => {
+                void navigator.clipboard.writeText(value);
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1200);
+            }}
+        >
+            {copied ? "Copied" : "Copy"}
+        </button>
     );
 }
 
@@ -510,7 +513,7 @@ function activitySummary(log: string[]): string {
 }
 
 function pillKind(status: string): string {
-    if (status === "Funded" || status === "On Bitcoin") return "good";
+    if (status === "Funded" || status === "On Bitcoin" || status === "Refund open") return "good";
     if (status === "Parameters differ") return "bad";
     return "";
 }

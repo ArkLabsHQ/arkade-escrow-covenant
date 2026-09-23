@@ -1,7 +1,34 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { describeExitClock, exitAnchor, exitOpensAt } from "./spend.ts";
+import { describeExitClock, escrowView, exitAnchor, exitOpensAt } from "./spend.ts";
+
+describe("escrowView", () => {
+    it("does not offer a refund while the escrow is still waiting for funds", () => {
+        const view = escrowView({ coins: 0, unrolled: false, refundDue: true, when: "Sep 24" });
+        assert.equal(view.status, "Waiting for funds");
+        assert.equal(view.refundNow, false);
+        assert.equal(view.refund, "Refund stays off until the sats arrive.");
+    });
+
+    it("opens a refund only after funds arrive and the time has passed", () => {
+        const waiting = escrowView({ coins: 1, unrolled: false, refundDue: false, when: "Sep 24" });
+        assert.equal(waiting.status, "Funded");
+        assert.equal(waiting.refundNow, false);
+        assert.equal(waiting.release, true);
+        const open = escrowView({ coins: 1, unrolled: false, refundDue: true, when: "Sep 24" });
+        assert.equal(open.status, "Refund open");
+        assert.equal(open.refund, "You can refund the buyer now.");
+    });
+
+    it("turns release and refund off once the escrow is on Bitcoin", () => {
+        const view = escrowView({ coins: 1, unrolled: true, refundDue: true, when: "Sep 24" });
+        assert.equal(view.status, "On Bitcoin");
+        assert.equal(view.release, false);
+        assert.equal(view.refundNow, false);
+        assert.equal(view.refund, "Release and refund stay off.");
+    });
+});
 
 describe("exitAnchor", () => {
     it("uses the funding transaction, including while it is still offchain", () => {

@@ -26,6 +26,35 @@ const program = escrowProgram();
 
 export const RELEASE_LABEL = "release-to-seller";
 
+/** One status for the card and the sheet. Refund is "now" only after funds arrive and the time has passed. */
+export function escrowView(input: {
+    coins: number;
+    unrolled: boolean;
+    refundDue: boolean;
+    when: string;
+}): { status: string; refund: string; release: boolean; refundNow: boolean } {
+    const later = input.when ? `You can refund the buyer after ${input.when}.` : "";
+    if (input.coins === 0) {
+        return {
+            status: "Waiting for funds",
+            refund: input.refundDue ? "Refund stays off until the sats arrive." : later,
+            release: false,
+            refundNow: false,
+        };
+    }
+    if (input.unrolled) {
+        return { status: "On Bitcoin", refund: "Release and refund stay off.", release: false, refundNow: false };
+    }
+    if (input.refundDue) {
+        return { status: "Refund open", refund: "You can refund the buyer now.", release: true, refundNow: true };
+    }
+    return { status: "Funded", refund: later, release: true, refundNow: false };
+}
+
+export function arkadeAddressUrl(spaceUrl: string, address: string): string {
+    return `${spaceUrl}/address/${encodeURIComponent(address)}`;
+}
+
 export interface DemoNetwork {
     name: "mutinynet" | "bitcoin";
     label: string;
@@ -33,6 +62,8 @@ export interface DemoNetwork {
     arkUrl: string;
     emulatorUrl: string;
     walletUrl: string;
+    /** Arkade explorer origin. Address pages are `${spaceUrl}/address/…`. */
+    spaceUrl: string;
     /** Esplora API. Used to read when a Bitcoin output was mined. */
     explorerUrl: string;
 }
@@ -45,6 +76,7 @@ export const DEMO_NETWORKS: DemoNetwork[] = [
         arkUrl: "https://mutinynet.arkade.sh",
         emulatorUrl: "https://emulator.mutinynet.arkade.sh",
         walletUrl: "https://mutinynet.arkade.money",
+        spaceUrl: "https://explorer.mutinynet.arkade.sh",
         explorerUrl: "https://mempool.mutinynet.arkade.sh/api",
     },
     {
@@ -54,6 +86,7 @@ export const DEMO_NETWORKS: DemoNetwork[] = [
         arkUrl: "https://arkade.computer",
         emulatorUrl: "https://emulator.arkade.computer",
         walletUrl: "https://bitcoin.arkade.money",
+        spaceUrl: "https://arkade.space",
         explorerUrl: "https://mempool.space/api",
     },
 ];
