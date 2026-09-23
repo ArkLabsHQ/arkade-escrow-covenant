@@ -66,9 +66,22 @@ const sellerSecret = required<HTMLInputElement>("#seller-secret");
 const importSecretsButton = required<HTMLButtonElement>("#import-secrets");
 const hopsLine = required<HTMLElement>("#hops");
 const downloadKeysButton = required<HTMLButtonElement>("#download-keys");
+const downloadKeysAdvanced = required<HTMLButtonElement>("#download-keys-advanced");
 const restoreKeysButton = required<HTMLButtonElement>("#restore-keys");
 const restoreFile = required<HTMLInputElement>("#restore-file");
 const log = required<HTMLElement>("#log");
+const entry = required<HTMLElement>("#entry");
+const rail = required<HTMLOListElement>("#rail");
+const otherNetwork = required<HTMLElement>("#other-network");
+const composer = required<HTMLElement>("#composer");
+const loadFields = required<HTMLElement>("#load-fields");
+const createFields = required<HTMLElement>("#create-fields");
+const createHint = required<HTMLElement>("#create-hint");
+const showLoadButton = required<HTMLButtonElement>("#show-load");
+const showCreateButton = required<HTMLButtonElement>("#show-create");
+const composerBack = required<HTMLButtonElement>("#composer-back");
+const backup = required<HTMLElement>("#backup");
+const coinLabel = required<HTMLElement>("#coin-label");
 
 let keys = loadKeys();
 const feeKey = loadFeeKey();
@@ -80,6 +93,10 @@ let exitOpen = false;
 let exitClockToken = 0;
 const minedAtByTxid = new Map<string, number | null>();
 let hopCache = { key: "", at: 0, text: "" };
+let composerMode: "closed" | "create" | "load" = "closed";
+const statusByAddress = new Map<string, string>();
+const mismatched = new Set<string>();
+const COVERED = "arkade-escrow-file-covers";
 
 networkSelect.replaceChildren(
     ...DEMO_NETWORKS.map((demo) => {
@@ -100,14 +117,18 @@ updateWalletLink();
 
 void showKeys();
 void showFeeWallet();
+syncEntry();
 networkSelect.addEventListener("change", () => {
     updateWalletLink();
     markStale();
     void raiseExitToOperator();
     void showFeeWallet();
+    syncEntry();
+    void refreshRailStatuses();
 });
 void (async () => {
     await raiseExitToOperator();
+    void refreshRailStatuses();
     const last = lastEscrowAddress();
     if (last && readEscrows().some((item) => item.address === last)) {
         await run("resume", () => loadByAddress(last));
@@ -119,9 +140,16 @@ for (const input of [buyerInput, sellerInput, amountInput, timeoutInput, exitInp
 
 form?.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (composerMode === "load") {
+        void run("load", () => loadByAddress(loadAddressInput.value));
+        return;
+    }
     void run("create", createEscrow);
 });
 loadEscrowButton.addEventListener("click", () => void run("load", () => loadByAddress(loadAddressInput.value)));
+showLoadButton.addEventListener("click", () => openComposer("load"));
+showCreateButton.addEventListener("click", () => openComposer("create"));
+composerBack.addEventListener("click", closeComposer);
 copyButton.addEventListener("click", () => {
     void navigator.clipboard.writeText(addressCode.textContent ?? "");
     note("copied the funding address");
@@ -133,6 +161,7 @@ unrollButton.addEventListener("click", () => void run("unroll", unroll));
 coinSelect.addEventListener("change", () => void updateExitClock());
 importSecretsButton.addEventListener("click", () => void run("keys", importSecrets));
 downloadKeysButton.addEventListener("click", downloadKeys);
+downloadKeysAdvanced.addEventListener("click", downloadKeys);
 restoreKeysButton.addEventListener("click", () => restoreFile.click());
 restoreFile.addEventListener("change", () => {
     const file = restoreFile.files?.[0];
@@ -142,7 +171,8 @@ restoreFile.addEventListener("change", () => {
 
 window.setInterval(() => {
     if (prepared && fingerprint === currentFingerprint()) void refreshCoins(false);
-}, 4000);
+    void refreshRailStatuses();
+}, 8000);
 
 async function createEscrow(expectedAddress?: string): Promise<void> {
     const demo = selectedNetwork();
@@ -174,8 +204,11 @@ async function createEscrow(expectedAddress?: string): Promise<void> {
         coins = [];
         fingerprint = "";
         contractSection.hidden = true;
+        contractSection.classList.remove("torn");
         throw new RebuildMismatch(rebuilt, expectedAddress);
     }
+    mismatched.delete(prepared.contract.address);
+    contractSection.classList.remove("torn");
     saveEscrow({
         address: prepared.contract.address,
         network: demo.name,
@@ -186,7 +219,10 @@ async function createEscrow(expectedAddress?: string): Promise<void> {
         exit: exitInput.value,
     });
     loadAddressInput.value = prepared.contract.address;
+    closeComposer();
+    syncBackup();
     await refreshCoins(true);
+    void refreshRailStatuses();
 }
 
 async function loadByAddress(address: string): Promise<void> {
@@ -238,6 +274,12 @@ async function showUnmatched(address: string, rebuilt: string | undefined, reaso
         : `The artifact could not be compiled with the parameters on this page: ${reason}`;
     const line = `${coinsLine} ${compiled} Change a parameter and load again until the compiled address is the one you pasted.`;
     loadStatus.textContent = line;
+    mismatched.add(address);
+    contractSection.classList.add("torn");
+    statusByAddress.set(address, "Parameters differ");
+    closeComposer();
+    syncBackup();
+    paintRail();
     note(line);
 }
 
@@ -288,6 +330,7 @@ async function importSecrets(): Promise<void> {
     hopsLine.textContent = "";
     await showKeys();
     const which = buyerText && sellerText ? "buyer and seller keys" : buyerText ? "buyer key" : "seller key";
+    syncEntry();
     note(`replaced the ${which}`);
 }
 
@@ -331,6 +374,7 @@ function fillCoinSelect(): void {
         }),
     );
     if (coins.some((coin) => `${coin.txid}:${coin.vout}` === previous)) coinSelect.value = previous;
+    coinLabel.hidden = coins.length <= 1;
 }
 
 async function refreshCoins(announce: boolean): Promise<void> {
@@ -366,10 +410,9 @@ function markStale(): void {
 }
 
 function describeCoins(): string {
-    if (coins.length === 0)
-        return "No coins yet. Send sats to the address above from Arkade.Money.";
+    if (coins.length === 0) return `Send ${amountInput.value} sats from Arkade.Money to this address.`;
     const total = coins.reduce((sum, coin) => sum + coin.value, 0);
-    return `${coins.length} coin${coins.length === 1 ? "" : "s"}, ${total} sats.`;
+    return `${total} sats in this escrow.`;
 }
 
 function downloadKeys(): void {
@@ -380,7 +423,9 @@ function downloadKeys(): void {
     link.download = "arkade-escrow-keys.json";
     link.click();
     URL.revokeObjectURL(url);
-    note("downloaded the oracle and exit keys");
+    markCovered(readEscrows().map((escrow) => escrow.address));
+    syncBackup();
+    note("Saved arkade-escrow-keys.json. Keep that file. It restores this escrow in another browser.");
 }
 
 async function restoreKeys(file: File): Promise<void> {
@@ -388,7 +433,10 @@ async function restoreKeys(file: File): Promise<void> {
     const stored = storedKeysFromText(text);
     const escrows = escrowsFromBackup(text);
     saveStoredKeys(stored);
-    if (escrows.length > 0) writeEscrows(escrows);
+    if (escrows.length > 0) {
+        writeEscrows(escrows);
+        markCovered(escrows.map((escrow) => escrow.address));
+    }
     keys = keysFromStored(stored);
     prepared = undefined;
     coins = [];
@@ -396,6 +444,8 @@ async function restoreKeys(file: File): Promise<void> {
     contractSection.hidden = true;
     hopsLine.textContent = "";
     await showKeys();
+    closeComposer();
+    syncEntry();
     const address = escrows[0]?.address ?? lastEscrowAddress();
     if (address && readEscrows().some((item) => item.address === address)) {
         await loadByAddress(address);
@@ -492,6 +542,7 @@ async function run(label: string, action: () => Promise<void>): Promise<void> {
     cancelButton.disabled = true;
     unilateralButton.disabled = true;
     unrollButton.disabled = true;
+    if (label === "unlock") completeButton.setAttribute("aria-busy", "true");
     try {
         await action();
     } catch (error) {
@@ -499,7 +550,9 @@ async function run(label: string, action: () => Promise<void>): Promise<void> {
     } finally {
         busy = false;
         prepareButton.disabled = false;
+        completeButton.removeAttribute("aria-busy");
         syncButtons();
+        syncBackup();
     }
 }
 
@@ -575,6 +628,130 @@ class RebuildMismatch extends Error {
         super(`compiled ${rebuilt}, which is not ${expected}`);
         this.rebuilt = rebuilt;
     }
+}
+
+function openComposer(mode: "create" | "load"): void {
+    composerMode = mode;
+    composer.hidden = false;
+    loadFields.hidden = mode !== "load";
+    createFields.hidden = mode !== "create";
+    createHint.hidden = mode !== "create";
+    entry.hidden = true;
+    const focus = mode === "load" ? loadAddressInput : buyerInput;
+    focus.focus();
+}
+
+function closeComposer(): void {
+    composerMode = "closed";
+    composer.hidden = true;
+    syncEntry();
+}
+
+function syncEntry(): void {
+    const onNetwork = readEscrows().filter((item) => item.network === networkSelect.value);
+    const elsewhere = readEscrows().length - onNetwork.length;
+    entry.classList.toggle("empty", readEscrows().length === 0);
+    entry.hidden = composerMode !== "closed";
+    otherNetwork.hidden = elsewhere === 0;
+    otherNetwork.textContent =
+        elsewhere === 0
+            ? ""
+            : `${elsewhere} escrow${elsewhere === 1 ? "" : "s"} on the other network. Switch network to see them.`;
+    paintRail();
+}
+
+function paintRail(): void {
+    const list = readEscrows().filter((item) => item.network === networkSelect.value);
+    const open = !contractSection.hidden ? addressCode.textContent?.trim() : "";
+    rail.replaceChildren(
+        ...list.map((escrow) => {
+            const item = document.createElement("li");
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "ticket";
+            if (escrow.address === open) button.setAttribute("aria-current", "true");
+            const stub = document.createElement("span");
+            stub.className = "stub";
+            const amount = document.createElement("b");
+            amount.textContent = escrow.amount;
+            const unit = document.createElement("small");
+            unit.textContent = "sats";
+            stub.append(amount, unit);
+            const body = document.createElement("span");
+            body.className = "ticket-body";
+            const parties = document.createElement("span");
+            parties.className = "parties";
+            parties.textContent = `${shortParty(escrow.buyer)} → ${shortParty(escrow.seller)}`;
+            const status = document.createElement("span");
+            status.className = "status";
+            status.textContent = statusByAddress.get(escrow.address) ?? "Checking";
+            body.append(parties, status);
+            button.append(stub, body);
+            button.addEventListener("click", () => {
+                void run("load", () => loadByAddress(escrow.address));
+            });
+            item.append(button);
+            return item;
+        }),
+    );
+    rail.hidden = list.length === 0;
+}
+
+async function refreshRailStatuses(): Promise<void> {
+    const demo = selectedNetwork();
+    const list = readEscrows().filter((item) => item.network === demo.name);
+    await Promise.all(
+        list.map(async (escrow) => {
+            if (mismatched.has(escrow.address) && prepared?.contract.address !== escrow.address) {
+                statusByAddress.set(escrow.address, "Parameters differ");
+                return;
+            }
+            if (prepared?.contract.address === escrow.address && fingerprint === currentFingerprint()) {
+                statusByAddress.set(escrow.address, statusWord(coins));
+                return;
+            }
+            try {
+                const watched = await coinsForAddress(demo, escrow.address);
+                statusByAddress.set(escrow.address, statusWord(watched));
+            } catch {
+                statusByAddress.set(escrow.address, "Not checked");
+            }
+        }),
+    );
+    paintRail();
+}
+
+function statusWord(watched: VirtualCoin[]): string {
+    if (watched.length === 0) return "Waiting for funds";
+    if (watched.some((coin) => coin.isUnrolled)) return "On Bitcoin";
+    return "Funded";
+}
+
+function shortParty(value: string): string {
+    const trimmed = value.trim();
+    if (trimmed.length <= 14) return trimmed;
+    return `…${trimmed.slice(-6)}`;
+}
+
+function covered(): Set<string> {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(COVERED) ?? "[]") as unknown;
+        if (!Array.isArray(parsed)) return new Set();
+        return new Set(parsed.filter((item): item is string => typeof item === "string"));
+    } catch {
+        return new Set();
+    }
+}
+
+function markCovered(addresses: string[]): void {
+    const next = covered();
+    for (const address of addresses) next.add(address);
+    localStorage.setItem(COVERED, JSON.stringify([...next]));
+}
+
+function syncBackup(): void {
+    const address = addressCode.textContent?.trim() ?? "";
+    backup.hidden = contractSection.hidden || !prepared || !address || covered().has(address);
 }
 
 function note(message: string): void {
