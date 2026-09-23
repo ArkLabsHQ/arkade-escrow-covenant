@@ -20,4 +20,4 @@ The contract commits `sha256` of the one message the oracle signs. A surplus of 
 
 `cancel` reads the emulator clock in Unix seconds through `checkTime`. arkd rebuilds an offchain spend of this leaf with nLockTime 0, so the check is the emulator's clock. The ASP runs that clock and can accept a cancel before `timeoutAt`.
 
-`unilateral` is `older(exit)`, a BIP68 seconds CSV. The seconds start when the Bitcoin output is mined: the commitment the coin is anchored to, or the coin's own output after it is unrolled. They do not start when the virtual coin is created.
+`unilateral` is `older(exit)`, a BIP68 seconds CSV. The seconds start when the funding transaction that created the output is mined. Until that transaction is unrolled onto Bitcoin, the output does not exist on chain and the clock has not started. Buyer and seller then spend it together.

@@ -1,14 +1,17 @@
-import { base64, hex } from "@scure/base";
+import { base64, bech32, hex } from "@scure/base";
 import {
     arkade,
     ArkAddress,
     assertSubmittedArkTxid,
     matchServerCheckpoints,
     networks,
+    EsploraProvider,
+    OnchainWallet,
     RestArkProvider,
     RestEmulatorProvider,
     RestIndexerProvider,
     SingleKey,
+    Unroll,
     timelockToSequence,
     Transaction,
     type Network,
@@ -108,6 +111,97 @@ export function saveStoredKeys(stored: StoredKeys): void {
     localStorage.setItem(KEY_STORAGE, JSON.stringify(stored));
 }
 
+const ESCROW_STORAGE = "arkade-escrow-records";
+const LAST_ESCROW = "arkade-escrow-last";
+
+/** Parameters that rebuild an escrow address. The oracle key lives with the other keys. */
+export interface StoredEscrow {
+    address: string;
+    network: "mutinynet" | "bitcoin";
+    buyer: string;
+    seller: string;
+    amount: string;
+    timeout: string;
+    exit: string;
+}
+
+export function parseEscrowList(value: unknown): StoredEscrow[] {
+    if (!Array.isArray(value)) return [];
+    const list: StoredEscrow[] = [];
+    for (const item of value) {
+        if (!item || typeof item !== "object") continue;
+        const record = item as Record<string, unknown>;
+        const network = record.network;
+        if (network !== "mutinynet" && network !== "bitcoin") continue;
+        const fields = ["address", "buyer", "seller", "amount", "timeout", "exit"] as const;
+        if (fields.some((name) => typeof record[name] !== "string" || !(record[name] as string).trim())) continue;
+        list.push({
+            address: (record.address as string).trim(),
+            network,
+            buyer: (record.buyer as string).trim(),
+            seller: (record.seller as string).trim(),
+            amount: (record.amount as string).trim(),
+            timeout: (record.timeout as string).trim(),
+            exit: (record.exit as string).trim(),
+        });
+    }
+    return list;
+}
+
+export function upsertEscrow(list: StoredEscrow[], escrow: StoredEscrow): StoredEscrow[] {
+    return [escrow, ...list.filter((item) => item.address !== escrow.address)];
+}
+
+export function escrowsFromBackup(text: string): StoredEscrow[] {
+    try {
+        const parsed = JSON.parse(text) as { escrows?: unknown };
+        return parseEscrowList(parsed?.escrows);
+    } catch {
+        return [];
+    }
+}
+
+export function readEscrows(): StoredEscrow[] {
+    const raw = localStorage.getItem(ESCROW_STORAGE);
+    if (!raw) return [];
+    try {
+        return parseEscrowList(JSON.parse(raw));
+    } catch {
+        return [];
+    }
+}
+
+export function writeEscrows(list: StoredEscrow[]): void {
+    localStorage.setItem(ESCROW_STORAGE, JSON.stringify(list));
+}
+
+export function saveEscrow(escrow: StoredEscrow): void {
+    writeEscrows(upsertEscrow(readEscrows(), escrow));
+    localStorage.setItem(LAST_ESCROW, escrow.address);
+}
+
+export function lastEscrowAddress(): string {
+    return localStorage.getItem(LAST_ESCROW) ?? "";
+}
+
+/** Buyer or seller secret: 32-byte hex, or a Nostr nsec. */
+export function secretToKey(text: string): SingleKey {
+    const trimmed = text.trim();
+    if (/^[0-9a-fA-F]{64}$/.test(trimmed)) return SingleKey.fromHex(trimmed.toLowerCase());
+    const lower = trimmed.toLowerCase();
+    if (!lower.startsWith("nsec1")) throw new Error("paste an nsec or a 64-character hex key");
+    let decoded: { prefix: string; words: number[] };
+    try {
+        decoded = bech32.decode(lower as `${string}1${string}`);
+    } catch {
+        throw new Error("that nsec could not be decoded");
+    }
+    if (decoded.prefix !== "nsec") throw new Error("that is not an nsec");
+    const bytes = Uint8Array.from(bech32.fromWords(decoded.words));
+    if (bytes.length !== 32) throw new Error("nsec is not a 32-byte key");
+    return SingleKey.fromPrivateKey(bytes);
+}
+
 export function loadKeys(): DemoKeys {
     const saved = localStorage.getItem(KEY_STORAGE);
     if (saved) return keysFromStored(storedKeysFromText(saved));
@@ -181,19 +275,11 @@ export interface ExitAnchor {
 }
 
 /**
- * `older(exit)` is a BIP68 seconds CSV. The seconds start when the Bitcoin
- * output is mined. A virtual coin that is still offchain uses the commitment
- * it is anchored to. An unrolled coin uses its own output.
+ * `older(exit)` spends this coin. The CSV starts when the transaction that
+ * created it is mined. A commitment further down the chain is only an ancestor.
  */
-export function exitAnchor(coin: {
-    txid: string;
-    isUnrolled?: boolean;
-    commitmentTxIds?: string[];
-}): ExitAnchor | undefined {
-    if (coin.isUnrolled) return { txid: coin.txid, unrolled: true };
-    const commitment = coin.commitmentTxIds?.find((txid) => txid.length > 0);
-    if (!commitment) return undefined;
-    return { txid: commitment, unrolled: false };
+export function exitAnchor(coin: { txid: string; isUnrolled?: boolean }): ExitAnchor {
+    return { txid: coin.txid, unrolled: coin.isUnrolled === true };
 }
 
 /** Unix time when a CSV of `exitSeconds` opens, counting from the mined output. */
@@ -215,7 +301,7 @@ export function describeExitClock(input: {
     const short = `${input.txid.slice(0, 8)}…${input.txid.slice(-8)}`;
     if (input.minedAt === null) {
         return {
-            text: `Bitcoin output ${short} is not mined yet, so the exit clock has not started.`,
+            text: `Funding transaction ${short} is not on Bitcoin yet. Unroll it. The CSV starts when its output is mined.`,
             open: false,
         };
     }
@@ -238,11 +324,136 @@ export function describeExitClock(input: {
 /** Block time of a Bitcoin transaction, or null when it is still unconfirmed. */
 export async function bitcoinMinedAt(explorerUrl: string, txid: string): Promise<number | null> {
     const response = await fetch(`${explorerUrl.replace(/\/$/, "")}/tx/${txid}`);
+    if (response.status === 404) return null;
     if (!response.ok) throw new Error(`bitcoin output lookup failed: ${response.status}`);
     const body = (await response.json()) as { status?: { confirmed?: boolean; block_time?: number } };
     if (!body.status?.confirmed) return null;
     if (typeof body.status.block_time !== "number") throw new Error("bitcoin output has no mined time");
     return body.status.block_time;
+}
+
+const FEE_STORAGE = "arkade-escrow-fee-key";
+
+/** On-chain key that pays the anchor child for each unroll package. */
+export function loadFeeKey(): SingleKey {
+    const saved = localStorage.getItem(FEE_STORAGE);
+    if (saved && /^[0-9a-fA-F]{64}$/.test(saved.trim())) return SingleKey.fromHex(saved.trim());
+    const key = SingleKey.fromRandomBytes();
+    localStorage.setItem(FEE_STORAGE, key.toHex());
+    return key;
+}
+
+export async function feeWallet(demo: DemoNetwork, key: SingleKey): Promise<OnchainWallet> {
+    return OnchainWallet.create(key, demo.name, new EsploraProvider(demo.explorerUrl));
+}
+
+export type UnrollProgress =
+    | { kind: "broadcast"; txid: string }
+    | { kind: "waiting"; txid: string }
+    | { kind: "done"; txid: string };
+
+/**
+ * Broadcast the next off-chain ancestor of `coin`, packaged with a fee child
+ * that spends its pay-to-anchor. One call is one hop. A hop already in the
+ * mempool comes back as `waiting` until it is mined.
+ */
+export async function unrollOnce(
+    demo: DemoNetwork,
+    coin: { txid: string; vout: number },
+    key: SingleKey,
+): Promise<UnrollProgress> {
+    const indexer = new RestIndexerProvider(demo.arkUrl);
+    const explorer = new EsploraProvider(demo.explorerUrl);
+    const bumper = await feeWallet(demo, key);
+    const session = await Unroll.Session.create({ txid: coin.txid, vout: coin.vout }, bumper, explorer, indexer);
+    const step = await session.next();
+    if (step.type === Unroll.StepType.DONE) {
+        await step.do();
+        return { kind: "done", txid: step.vtxoTxid };
+    }
+    if (step.type === Unroll.StepType.WAIT) return { kind: "waiting", txid: step.txid };
+    await step.do();
+    return { kind: "broadcast", txid: step.tx.id };
+}
+
+export interface UnrollHop {
+    txid: string;
+    kind: string;
+    /** confirmed, in the mempool, or still only on the indexer. */
+    onchain: "confirmed" | "mempool" | "offchain";
+}
+
+/** Indexer chain from the on-chain root out to this coin, with Bitcoin status. */
+export async function listUnrollHops(
+    demo: DemoNetwork,
+    coin: { txid: string; vout: number },
+): Promise<UnrollHop[]> {
+    const indexer = new RestIndexerProvider(demo.arkUrl);
+    const explorer = new EsploraProvider(demo.explorerUrl);
+    const { chain } = await indexer.getVtxoChain(coin);
+    const hops: UnrollHop[] = [];
+    for (const step of [...chain].reverse()) {
+        const kind = step.type.replace("INDEXER_CHAINED_TX_TYPE_", "").toLowerCase();
+        if (kind === "commitment") {
+            hops.push({ txid: step.txid, kind, onchain: "confirmed" });
+            continue;
+        }
+        let onchain: UnrollHop["onchain"] = "offchain";
+        try {
+            const status = await explorer.getTxStatus(step.txid);
+            onchain = status.confirmed ? "confirmed" : "mempool";
+        } catch {
+            onchain = "offchain";
+        }
+        hops.push({ txid: step.txid, kind, onchain });
+    }
+    return hops;
+}
+
+/**
+ * Spend the unrolled escrow output on Bitcoin. Both nsecs sign the 2-of-2
+ * leaf. The coins go to `address`. Nothing is sent to the Arkade server.
+ */
+export async function spendExitOnchain(
+    prepared: PreparedEscrow,
+    coin: { txid: string; vout: number; value: number },
+    address: string,
+): Promise<string> {
+    const names = Object.keys(prepared.contract.program.functions);
+    const index = names.indexOf("unilateral");
+    if (index < 0) throw new Error("contract has no unilateral leaf");
+    const leaf = prepared.contract.leafScript(index);
+    const sequence = timelockToSequence({ type: "seconds", value: prepared.exit });
+    const explorer = new EsploraProvider(prepared.demo.explorerUrl);
+    const rate = Math.max(1, (await explorer.getFeeRate()) ?? 1);
+    const value = BigInt(coin.value);
+    const build = (fee: bigint) => {
+        const send = value - fee;
+        if (send < 546n) throw new Error(`this coin has ${value} sats, which cannot pay a ${fee} sat fee`);
+        const tx = new Transaction({ version: 2 });
+        tx.addInput({
+            txid: coin.txid,
+            index: coin.vout,
+            sequence,
+            tapLeafScript: [leaf],
+            witnessUtxo: { amount: value, script: prepared.contract.pkScript },
+        });
+        tx.addOutputAddress(address, send, prepared.demo.network);
+        return tx;
+    };
+    let fee = 1000n;
+    let tx = build(fee);
+    for (const key of [prepared.buyer, prepared.seller]) tx = await key.sign(tx, [0]);
+    tx.finalize();
+    const needed = BigInt(Math.ceil(tx.vsize * rate));
+    if (needed > fee) {
+        fee = needed;
+        tx = build(fee);
+        for (const key of [prepared.buyer, prepared.seller]) tx = await key.sign(tx, [0]);
+        tx.finalize();
+    }
+    const broadcast = await explorer.broadcastTransaction(tx.hex);
+    return typeof broadcast === "string" && broadcast.trim() ? broadcast.trim() : tx.id;
 }
 
 /** Operator unilateral exit delay. Public arkd requires the escrow exit to be at least this. */
