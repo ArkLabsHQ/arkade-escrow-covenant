@@ -1,16 +1,30 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Accordion } from "@base-ui/react/accordion";
 import { Dialog } from "@base-ui/react/dialog";
 import { Toggle } from "@base-ui/react/toggle";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { Toaster } from "sonner";
 
-import { AMOUNT_PRESETS, formatSats, fundingUrl, shortAddress, useEscrow, type RailItem } from "./use-escrow.ts";
+import {
+    AMOUNT_PRESETS,
+    formatSats,
+    fundingUrl,
+    shortAddress,
+    useEscrow,
+    type EscrowModel,
+    type RailItem,
+} from "./use-escrow.ts";
 
 export function App() {
     const { model, actions, networks } = useEscrow();
     const amountRef = useRef<HTMLInputElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
+    const loadErrorRef = useRef<HTMLParagraphElement>(null);
+
+    useEffect(() => {
+        if (!model.loadError) return;
+        loadErrorRef.current?.scrollIntoView({ block: "nearest" });
+    }, [model.loadError]);
 
     return (
         <div className="page">
@@ -91,7 +105,7 @@ export function App() {
                             </div>
                             <Dialog.Description className="lede">
                                 {model.composer === "load"
-                                    ? "The address already contains the buyer, the seller, the amount, and the refund time."
+                                    ? "Enter the buyer, seller, amount, refund time, and exit delay used to create this address."
                                     : "The buyer pays in. Release pays the seller. A refund pays the buyer."}
                             </Dialog.Description>
 
@@ -103,6 +117,21 @@ export function App() {
                                         actions.submitLoad();
                                     }}
                                 >
+                                    <div className="field">
+                                        <span>Network</span>
+                                        <div className="segment" role="group" aria-label="Network">
+                                            {networks.map((network) => (
+                                                <button
+                                                    key={network.name}
+                                                    type="button"
+                                                    aria-pressed={model.network === network.name}
+                                                    onClick={() => actions.setNetwork(network.name)}
+                                                >
+                                                    {network.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                     <label className="field">
                                         <span>Escrow address</span>
                                         <input
@@ -111,13 +140,24 @@ export function App() {
                                             autoComplete="off"
                                             spellCheck={false}
                                             placeholder="tark1…"
+                                            required
                                             onChange={(event) => actions.setField("loadAddress", event.target.value)}
                                         />
                                     </label>
-                                    <p className="hint">
-                                        Use the same buyer, seller, amount, and refund time, or restore a saved file after it opens.
-                                    </p>
-                                    <button className="btn primary wide" type="submit">
+                                    <TermsFields
+                                        model={model}
+                                        amountRef={amountRef}
+                                        showExit
+                                        onField={actions.setField}
+                                        onAmount={actions.chooseAmount}
+                                        onCustom={actions.chooseCustom}
+                                    />
+                                    {model.loadError ? (
+                                        <p className="fault form-fault" role="alert" ref={loadErrorRef}>
+                                            {model.loadError}
+                                        </p>
+                                    ) : null}
+                                    <button className="btn primary wide" type="submit" disabled={model.busy}>
                                         Open this escrow
                                     </button>
                                 </form>
@@ -129,91 +169,14 @@ export function App() {
                                         actions.submitCreate();
                                     }}
                                 >
-                                    <fieldset className="party">
-                                        <legend>Buyer</legend>
-                                        <p className="hint">This address pays the escrow. A refund returns here.</p>
-                                        <label className="field">
-                                            <span>Arkade address</span>
-                                            <input
-                                                id="buyer"
-                                                value={model.buyer}
-                                                autoComplete="off"
-                                                spellCheck={false}
-                                                placeholder="tark1…"
-                                                required
-                                                onChange={(event) => actions.setField("buyer", event.target.value)}
-                                            />
-                                        </label>
-                                    </fieldset>
-                                    <fieldset className="party">
-                                        <legend>Seller</legend>
-                                        <p className="hint">Release pays this address.</p>
-                                        <label className="field">
-                                            <span>Arkade address</span>
-                                            <input
-                                                id="seller"
-                                                value={model.seller}
-                                                autoComplete="off"
-                                                spellCheck={false}
-                                                placeholder="tark1…"
-                                                required
-                                                onChange={(event) => actions.setField("seller", event.target.value)}
-                                            />
-                                        </label>
-                                    </fieldset>
-                                    <div className="field">
-                                        <span id="amount-label">Amount</span>
-                                        <ToggleGroup
-                                            className="amounts"
-                                            aria-labelledby="amount-label"
-                                            value={[model.customAmount ? "custom" : model.amount]}
-                                            onValueChange={(value) => {
-                                                const next = value[0];
-                                                if (!next) return;
-                                                if (next === "custom") {
-                                                    actions.chooseCustom();
-                                                    requestAnimationFrame(() => amountRef.current?.focus());
-                                                    return;
-                                                }
-                                                actions.chooseAmount(next);
-                                            }}
-                                        >
-                                            {AMOUNT_PRESETS.map((amount) => (
-                                                <Toggle key={amount} className="chip" value={String(amount)}>
-                                                    {formatSats(amount)}
-                                                </Toggle>
-                                            ))}
-                                            <Toggle className="chip" value="custom">
-                                                Custom
-                                            </Toggle>
-                                        </ToggleGroup>
-                                    </div>
-                                    {model.customAmount ? (
-                                        <label className="field">
-                                            <span>Custom amount (sats)</span>
-                                            <input
-                                                ref={amountRef}
-                                                id="amount"
-                                                type="number"
-                                                min={1}
-                                                step={1}
-                                                required
-                                                value={model.amount}
-                                                onChange={(event) => actions.setField("amount", event.target.value)}
-                                            />
-                                        </label>
-                                    ) : null}
-                                    <label className="field">
-                                        <span>Refund after</span>
-                                        <input
-                                            id="timeout"
-                                            type="datetime-local"
-                                            required
-                                            value={model.timeout}
-                                            onChange={(event) => actions.setField("timeout", event.target.value)}
-                                        />
-                                    </label>
-                                    <p className="hint">You can refund the buyer after this time.</p>
+                                    <TermsFields
+                                        model={model}
+                                        amountRef={amountRef}
+                                        showExit={false}
+                                        onField={actions.setField}
+                                        onAmount={actions.chooseAmount}
+                                        onCustom={actions.chooseCustom}
+                                    />
                                     <button className="btn primary wide" type="submit" disabled={model.busy}>
                                         Create escrow
                                     </button>
@@ -447,6 +410,131 @@ export function App() {
 
             <Toaster position="bottom-center" toastOptions={{ duration: 3200 }} />
         </div>
+    );
+}
+
+function TermsFields({
+    model,
+    amountRef,
+    showExit,
+    onField,
+    onAmount,
+    onCustom,
+}: {
+    model: EscrowModel;
+    amountRef: React.RefObject<HTMLInputElement | null>;
+    showExit: boolean;
+    onField: (key: "buyer" | "seller" | "amount" | "timeout" | "exit", value: string) => void;
+    onAmount: (amount: string) => void;
+    onCustom: () => void;
+}) {
+    return (
+        <>
+            <div className="terms">
+                <fieldset className="party">
+                    <legend>Buyer</legend>
+                    <p className="hint">Pays in. A refund returns here.</p>
+                    <label className="field">
+                        <span className="sr">Arkade address</span>
+                        <input
+                            id="buyer"
+                            value={model.buyer}
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder="tark1…"
+                            required
+                            onChange={(event) => onField("buyer", event.target.value)}
+                        />
+                    </label>
+                </fieldset>
+                <fieldset className="party">
+                    <legend>Seller</legend>
+                    <p className="hint">Release pays this address.</p>
+                    <label className="field">
+                        <span className="sr">Arkade address</span>
+                        <input
+                            id="seller"
+                            value={model.seller}
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder="tark1…"
+                            required
+                            onChange={(event) => onField("seller", event.target.value)}
+                        />
+                    </label>
+                </fieldset>
+            </div>
+            <div className="field">
+                <span id="amount-label">Amount</span>
+                <ToggleGroup
+                    className="amounts"
+                    aria-labelledby="amount-label"
+                    value={[model.customAmount ? "custom" : model.amount]}
+                    onValueChange={(value) => {
+                        const next = value[0];
+                        if (!next) return;
+                        if (next === "custom") {
+                            onCustom();
+                            requestAnimationFrame(() => amountRef.current?.focus());
+                            return;
+                        }
+                        onAmount(next);
+                    }}
+                >
+                    {AMOUNT_PRESETS.map((amount) => (
+                        <Toggle key={amount} className="chip" value={String(amount)}>
+                            {formatSats(amount)}
+                        </Toggle>
+                    ))}
+                    <Toggle className="chip" value="custom">
+                        Custom
+                    </Toggle>
+                </ToggleGroup>
+            </div>
+            {model.customAmount ? (
+                <label className="field">
+                    <span>Custom amount (sats)</span>
+                    <input
+                        ref={amountRef}
+                        id="amount"
+                        type="number"
+                        min={1}
+                        step={1}
+                        required
+                        value={model.amount}
+                        onChange={(event) => onField("amount", event.target.value)}
+                    />
+                </label>
+            ) : null}
+            <label className="field">
+                <span>Refund after</span>
+                <input
+                    id="timeout"
+                    type="datetime-local"
+                    required
+                    value={model.timeout}
+                    onChange={(event) => onField("timeout", event.target.value)}
+                />
+            </label>
+            <p className="hint">You can refund the buyer after this time.</p>
+            {showExit ? (
+                <>
+                    <label className="field">
+                        <span>Exit delay (seconds)</span>
+                        <input
+                            id="load-exit"
+                            type="number"
+                            min={512}
+                            step={512}
+                            required
+                            value={model.exit}
+                            onChange={(event) => onField("exit", event.target.value)}
+                        />
+                    </label>
+                    <p className="hint">Creation uses the delay already in this browser.</p>
+                </>
+            ) : null}
+        </>
     );
 }
 

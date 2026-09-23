@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { bech32 } from "@scure/base";
 
+import { loadMismatchMessage, shortAddress } from "./use-escrow.ts";
 import { escrowsFromBackup, parseEscrowList, secretToKey, storedKeysFromText, upsertEscrow } from "./spend.ts";
 
 const hex = (fill: string) => fill.repeat(64).slice(0, 64);
@@ -71,6 +72,17 @@ const escrow = {
     timeout: "2026-09-23T18:00",
     exit: "2048",
 };
+
+describe("loadMismatchMessage", () => {
+    it("names the address the details actually compile to", () => {
+        const rebuilt = "tark1qqcpq7yq3e8hhsx6ml3fud93m7827qggaurtz";
+        assert.equal(
+            loadMismatchMessage(rebuilt).includes(shortAddress(rebuilt)),
+            true,
+        );
+        assert.match(loadMismatchMessage(rebuilt), /not the address you entered/);
+    });
+});
 
 describe("saved escrows", () => {
     it("keeps one record per address, newest first", () => {

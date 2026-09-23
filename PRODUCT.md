@@ -18,6 +18,7 @@ Spend the Arkade escrow in `contracts/escrow.ark`. The first screen is the list 
 
 - With no saved escrow, the only actions are create and load.
 - Create is a dialog: buyer address, seller address, a preset amount or a custom amount, and a refund time.
+- Load an address asks for those same details, plus the exit delay. A mismatch stays on that sheet.
 - A saved escrow is a tile. Opening it shows Release and Refund.
 - Unroll, unilateral exit, and keys stay under Advanced.
 - The taproot is the artifact plus those parameters. Saving the key file is taught when an address exists.

@@ -55,7 +55,7 @@ The system font. Large titles and amounts use tight tracking. Body text stays at
 
 ## Layout
 
-Cards wrap from 240px. Sheets are at most 26.5rem and become a bottom sheet under 640px. Buyer and seller stay in separate groups. Read the amount and the refund sentence before the pay-out buttons. On Bitcoin, Keys, and Activity stay under Advanced, one open at a time.
+Cards wrap from 240px. Sheets are at most 26.5rem and become a bottom sheet under 640px. Buyer and seller stay in separate groups. Load an address uses those same groups, plus the exit delay, and keeps the sheet open when the details do not match. Read the amount and the refund sentence before the pay-out buttons. On Bitcoin, Keys, and Activity stay under Advanced, one open at a time.
 
 ## Elevation & Depth
 

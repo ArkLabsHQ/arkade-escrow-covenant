@@ -58,6 +58,7 @@ export type EscrowModel = {
     exit: string;
     composer: "create" | "load" | null;
     loadAddress: string;
+    loadError: string;
     contractOpen: boolean;
     torn: boolean;
     balance: string;
@@ -159,6 +160,7 @@ function initialModel(): EscrowModel {
         exit: !storedExit || storedExit === "0" ? "2048" : storedExit,
         composer: null,
         loadAddress: "",
+        loadError: "",
         contractOpen: false,
         torn: false,
         balance: "",
@@ -534,7 +536,7 @@ export function useEscrow() {
         const timeoutAt = readTimeout();
         const exitDelay = readExit();
         remember();
-        preparedRef.current = await prepareEscrow({
+        const prepared = await prepareEscrow({
             demo,
             buyerAddress: modelRef.current.buyer,
             sellerAddress: modelRef.current.seller,
@@ -543,25 +545,20 @@ export function useEscrow() {
             exit: exitDelay,
             keys: keysRef.current,
         });
+        if (expectedAddress && prepared.contract.address !== expectedAddress) {
+            throw new RebuildMismatch(prepared.contract.address, expectedAddress);
+        }
+        preparedRef.current = prepared;
         fingerprintRef.current = currentFingerprint();
-        patch({ funding: preparedRef.current.contract.address, torn: false, loadStatus: "" });
+        patch({ funding: prepared.contract.address, torn: false, loadStatus: "", loadError: "" });
         paintFacts();
         showContract();
-        if (preparedRef.current.emulatorVersion.startsWith("v0.0.7")) {
+        if (prepared.emulatorVersion.startsWith("v0.0.7")) {
             note("this emulator is older than v0.0.8, so refund will be rejected");
         }
-        if (expectedAddress && preparedRef.current.contract.address !== expectedAddress) {
-            const rebuilt = preparedRef.current.contract.address;
-            preparedRef.current = undefined;
-            coinsRef.current = [];
-            fingerprintRef.current = "";
-            hideContract();
-            patch({ torn: false });
-            throw new RebuildMismatch(rebuilt, expectedAddress);
-        }
-        statusByAddress.current.delete(preparedRef.current.contract.address);
+        statusByAddress.current.delete(prepared.contract.address);
         saveEscrow({
-            address: preparedRef.current.contract.address,
+            address: prepared.contract.address,
             network: demo.name,
             buyer: modelRef.current.buyer.trim(),
             seller: modelRef.current.seller.trim(),
@@ -569,38 +566,46 @@ export function useEscrow() {
             timeout: modelRef.current.timeout,
             exit: modelRef.current.exit,
         });
-        patch({ loadAddress: preparedRef.current.contract.address });
+        patch({ loadAddress: prepared.contract.address });
         closeComposer();
         syncBackup();
         await refreshCoins(true);
         void refreshRailStatuses();
     }
 
+    function fillKnownEscrow(address: string): void {
+        const found = readEscrows().find((item) => item.address === address.trim());
+        if (!found) return;
+        patch({
+            network: found.network,
+            buyer: found.buyer,
+            seller: found.seller,
+            amount: found.amount,
+            timeout: found.timeout,
+            exit: found.exit,
+            customAmount: !AMOUNT_PRESETS.some((preset) => String(preset) === found.amount),
+            loadError: "",
+        });
+        updateWallet(found.network);
+    }
+
     async function loadByAddress(address: string): Promise<void> {
-        const trimmed = address.trim();
-        if (!trimmed) throw new Error("paste an escrow address");
-        const found = readEscrows().find((item) => item.address === trimmed);
-        if (found) {
-            patch({
-                network: found.network,
-                buyer: found.buyer,
-                seller: found.seller,
-                amount: found.amount,
-                timeout: found.timeout,
-                exit: found.exit,
-                customAmount: !AMOUNT_PRESETS.some((preset) => String(preset) === found.amount),
-            });
-            updateWallet(found.network);
-        }
+        const fromForm = modelRef.current.composer === "load";
         try {
+            const trimmed = address.trim();
+            if (!trimmed) throw new Error("Enter the escrow address.");
+            if (!fromForm) fillKnownEscrow(trimmed);
             await createEscrow(trimmed);
+            patch({ loadStatus: "", loadError: "" });
         } catch (error) {
+            if (fromForm) {
+                patch({ loadError: readableError(error), composer: "load" });
+                return;
+            }
             const rebuilt = error instanceof RebuildMismatch ? error.rebuilt : undefined;
             const reason = error instanceof Error ? error.message : String(error);
-            await showUnmatched(trimmed, rebuilt, reason);
-            return;
+            await showUnmatched(address.trim(), rebuilt, reason);
         }
-        patch({ loadStatus: "" });
     }
 
     async function showUnmatched(address: string, rebuilt: string | undefined, reason: string): Promise<void> {
@@ -763,10 +768,11 @@ export function useEscrow() {
     }
 
     function setField(key: "buyer" | "seller" | "amount" | "timeout" | "exit" | "loadAddress" | "buyerSecret" | "sellerSecret", value: string): void {
-        patch({ [key]: value });
+        patch({ [key]: value, loadError: "" });
         if (key === "amount") {
             patch({ customAmount: !AMOUNT_PRESETS.some((preset) => String(preset) === value) });
         }
+        if (key === "loadAddress") fillKnownEscrow(value);
         if (key === "buyer" || key === "seller" || key === "amount" || key === "timeout" || key === "exit") markStale();
     }
 
@@ -788,7 +794,7 @@ export function useEscrow() {
 
     const actions = {
         setNetwork(network: string) {
-            patch({ network });
+            patch({ network, loadError: "" });
             updateWallet(network);
             markStale();
             void raiseExitToOperator();
@@ -798,17 +804,19 @@ export function useEscrow() {
         },
         setField,
         chooseAmount(amount: string) {
-            patch({ amount, customAmount: false });
+            patch({ amount, customAmount: false, loadError: "" });
             markStale();
         },
         chooseCustom() {
-            patch({ customAmount: true });
+            patch({ customAmount: true, loadError: "" });
         },
         openComposer(mode: "create" | "load") {
             patch({
                 composer: mode,
+                loadError: "",
                 customAmount: !AMOUNT_PRESETS.some((preset) => String(preset) === modelRef.current.amount),
             });
+            if (mode === "load") fillKnownEscrow(modelRef.current.loadAddress);
         },
         closeComposer() {
             closeComposer();
@@ -860,6 +868,17 @@ class RebuildMismatch extends Error {
         super(`compiled ${rebuilt}, which is not ${expected}`);
         this.rebuilt = rebuilt;
     }
+}
+
+export function loadMismatchMessage(rebuilt: string): string {
+    return `These details compile to ${shortAddress(rebuilt)}, not the address you entered. Check the buyer, seller, amount, refund time, exit delay, network, and keys.`;
+}
+
+function readableError(error: unknown): string {
+    if (error instanceof RebuildMismatch) return loadMismatchMessage(error.rebuilt);
+    const message = error instanceof Error ? error.message : String(error);
+    const shortened = message.replace(/\b[A-Za-z0-9]{20,}\b/g, (token) => shortAddress(token));
+    return shortened.charAt(0).toUpperCase() + shortened.slice(1);
 }
 
 export function shortAddress(value: string): string {
