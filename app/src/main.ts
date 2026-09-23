@@ -1,9 +1,12 @@
 import { hex } from "@scure/base";
 
-import { arkade } from "@arkade-os/sdk";
+import { arkade, type VirtualCoin } from "@arkade-os/sdk";
 
 import {
+    bitcoinMinedAt,
     DEMO_NETWORKS,
+    describeExitClock,
+    exitAnchor,
     exportStoredKeys,
     keysFromStored,
     loadKeys,
@@ -39,6 +42,7 @@ const coinSelect = required<HTMLSelectElement>("#coin");
 const completeButton = required<HTMLButtonElement>("#complete");
 const cancelButton = required<HTMLButtonElement>("#cancel");
 const unilateralButton = required<HTMLButtonElement>("#unilateral");
+const exitClock = required<HTMLElement>("#exit-clock");
 const oracleLine = required<HTMLElement>("#oracle");
 const keysLine = required<HTMLElement>("#keys");
 const downloadKeysButton = required<HTMLButtonElement>("#download-keys");
@@ -48,9 +52,12 @@ const log = required<HTMLElement>("#log");
 
 let keys = loadKeys();
 let prepared: PreparedEscrow | undefined;
-let coins: arkade.Utxo[] = [];
+let coins: VirtualCoin[] = [];
 let fingerprint = "";
 let busy = false;
+let exitOpen = false;
+let exitClockToken = 0;
+const minedAtByTxid = new Map<string, number | null>();
 
 networkSelect.replaceChildren(
     ...DEMO_NETWORKS.map((demo) => {
@@ -91,6 +98,7 @@ copyButton.addEventListener("click", () => {
 completeButton.addEventListener("click", () => void run("unlock", unlock));
 cancelButton.addEventListener("click", () => void run("refund", refund));
 unilateralButton.addEventListener("click", () => void run("exit", exit));
+coinSelect.addEventListener("change", () => void updateExitClock());
 downloadKeysButton.addEventListener("click", downloadKeys);
 restoreKeysButton.addEventListener("click", () => restoreFile.click());
 restoreFile.addEventListener("change", () => {
@@ -186,11 +194,11 @@ async function refreshCoins(announce: boolean): Promise<void> {
     if (coins.some((coin) => `${coin.txid}:${coin.vout}` === previous)) coinSelect.value = previous;
     const total = coins.reduce((sum, coin) => sum + coin.value, 0);
     balanceLine.textContent = describeCoins();
-    syncButtons();
     if (announce && coins.length > 0) note(`found ${total} sats`);
+    await updateExitClock();
 }
 
-function selectedCoin(): arkade.Utxo {
+function selectedCoin(): VirtualCoin {
     const coin = coins.find((item) => `${item.txid}:${item.vout}` === coinSelect.value) ?? coins[0];
     if (!coin) throw new Error("fund the escrow first");
     return coin;
@@ -209,7 +217,7 @@ function markStale(): void {
         fingerprint === currentFingerprint()
             ? describeCoins()
             : "The form changed. Create the escrow again before spending.";
-    syncButtons();
+    void updateExitClock();
 }
 
 function describeCoins(): string {
@@ -330,11 +338,55 @@ async function run(label: string, action: () => Promise<void>): Promise<void> {
     }
 }
 
+async function updateExitClock(): Promise<void> {
+    const token = ++exitClockToken;
+    const current = prepared;
+    const coin = coins.find((item) => `${item.txid}:${item.vout}` === coinSelect.value) ?? coins[0];
+    if (!current || fingerprint !== currentFingerprint() || !coin) {
+        exitClock.textContent = "";
+        exitOpen = false;
+        syncButtons();
+        return;
+    }
+    const anchor = exitAnchor(coin);
+    if (!anchor) {
+        exitClock.textContent = "This coin has no Bitcoin output yet, so the exit clock has not started.";
+        exitOpen = false;
+        syncButtons();
+        return;
+    }
+    try {
+        const minedAt = await cachedMinedAt(current.demo.explorerUrl, anchor.txid);
+        if (token !== exitClockToken) return;
+        const described = describeExitClock({
+            txid: anchor.txid,
+            minedAt,
+            exitSeconds: current.exit,
+            now: nowSeconds(),
+        });
+        exitClock.textContent = described.text;
+        exitOpen = described.open;
+    } catch (error) {
+        if (token !== exitClockToken) return;
+        exitClock.textContent = `exit clock failed: ${error instanceof Error ? error.message : String(error)}`;
+        exitOpen = false;
+    }
+    syncButtons();
+}
+
+async function cachedMinedAt(explorerUrl: string, txid: string): Promise<number | null> {
+    const cached = minedAtByTxid.get(txid);
+    if (cached !== undefined && cached !== null) return cached;
+    const minedAt = await bitcoinMinedAt(explorerUrl, txid);
+    if (minedAt !== null) minedAtByTxid.set(txid, minedAt);
+    return minedAt;
+}
+
 function syncButtons(): void {
     const ready = !busy && coins.length > 0 && !!prepared && fingerprint === currentFingerprint();
     completeButton.disabled = !ready;
     cancelButton.disabled = !ready;
-    unilateralButton.disabled = !ready;
+    unilateralButton.disabled = !ready || !exitOpen;
 }
 
 function note(message: string): void {

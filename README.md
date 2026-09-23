@@ -34,7 +34,7 @@ pnpm dev
 
 The page is http://127.0.0.1:4173. `pnpm build` writes `dist/`.
 
-An escrow created before the exit was a seconds CSV cannot be spent offchain. Create a new one and fund that address. Mutinynet's unilateral exit delay is 2048 seconds, and the delay must be a multiple of 512. The Bitcoin emulator at `emulator.arkade.computer` is still v0.0.7 and has no `CHECKTIME`, so refund fails there. The page says so when the version starts with `v0.0.7`.
+An escrow created before the exit was a seconds CSV cannot be spent offchain. Create a new one and fund that address. Mutinynet's unilateral exit delay is 2048 seconds, and the delay must be a multiple of 512. That delay is a CSV: the seconds start when the Bitcoin output is mined, not when the virtual coin appears. The page reads the commitment's block time and keeps Unilateral exit closed until then. The Bitcoin emulator at `emulator.arkade.computer` is still v0.0.7 and has no `CHECKTIME`, so refund fails there. The page says so when the version starts with `v0.0.7`.
 
 ## GitHub Pages
 

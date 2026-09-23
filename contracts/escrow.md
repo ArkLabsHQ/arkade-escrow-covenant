@@ -19,3 +19,5 @@ flowchart TD
 The contract commits `sha256` of the one message the oracle signs. A surplus of 330 sats or less is unconstrained, so a slight overfund cannot block the release. Outputs take the whole VTXO; miner fees come from a server input. `complete` and `cancel` require a single input so two escrow coins cannot share one payout.
 
 `cancel` reads the emulator clock in Unix seconds through `checkTime`. arkd rebuilds an offchain spend of this leaf with nLockTime 0, so the check is the emulator's clock. The ASP runs that clock and can accept a cancel before `timeoutAt`.
+
+`unilateral` is `older(exit)`, a BIP68 seconds CSV. The seconds start when the Bitcoin output is mined: the commitment the coin is anchored to, or the coin's own output after it is unrolled. They do not start when the virtual coin is created.

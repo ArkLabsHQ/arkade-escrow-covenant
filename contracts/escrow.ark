@@ -21,6 +21,7 @@ contract Escrow(
   // gate it: arkd rebuilds offchain spends of this leaf with nLockTime 0.
   int     timeoutAt,
   // Seconds, a multiple of 512, at least the operator's unilateral exit delay.
+  // older(exit) is a CSV: the seconds start when the Bitcoin output is mined.
   // The spent program sets the BIP68 seconds bit. arkadec older() pushes the
   // integer as blocks, and public arkd rejects that exit leaf.
   int     exit

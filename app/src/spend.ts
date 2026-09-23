@@ -28,6 +28,8 @@ export interface DemoNetwork {
     arkUrl: string;
     emulatorUrl: string;
     walletUrl: string;
+    /** Esplora API. Used to read when a Bitcoin output was mined. */
+    explorerUrl: string;
 }
 
 export const DEMO_NETWORKS: DemoNetwork[] = [
@@ -38,6 +40,7 @@ export const DEMO_NETWORKS: DemoNetwork[] = [
         arkUrl: "https://mutinynet.arkade.sh",
         emulatorUrl: "https://emulator.mutinynet.arkade.sh",
         walletUrl: "https://mutinynet.arkade.money",
+        explorerUrl: "https://mempool.mutinynet.arkade.sh/api",
     },
     {
         name: "bitcoin",
@@ -46,6 +49,7 @@ export const DEMO_NETWORKS: DemoNetwork[] = [
         arkUrl: "https://arkade.computer",
         emulatorUrl: "https://emulator.arkade.computer",
         walletUrl: "https://bitcoin.arkade.money",
+        explorerUrl: "https://mempool.space/api",
     },
 ];
 
@@ -168,6 +172,77 @@ export interface PreparedEscrow {
     buyer: SingleKey;
     seller: SingleKey;
     exit: bigint;
+}
+
+export interface ExitAnchor {
+    txid: string;
+    /** True when this coin itself is the mined Bitcoin output. */
+    unrolled: boolean;
+}
+
+/**
+ * `older(exit)` is a BIP68 seconds CSV. The seconds start when the Bitcoin
+ * output is mined. A virtual coin that is still offchain uses the commitment
+ * it is anchored to. An unrolled coin uses its own output.
+ */
+export function exitAnchor(coin: {
+    txid: string;
+    isUnrolled?: boolean;
+    commitmentTxIds?: string[];
+}): ExitAnchor | undefined {
+    if (coin.isUnrolled) return { txid: coin.txid, unrolled: true };
+    const commitment = coin.commitmentTxIds?.find((txid) => txid.length > 0);
+    if (!commitment) return undefined;
+    return { txid: commitment, unrolled: false };
+}
+
+/** Unix time when a CSV of `exitSeconds` opens, counting from the mined output. */
+export function exitOpensAt(minedAtUnix: number, exitSeconds: bigint): number {
+    if (!Number.isSafeInteger(minedAtUnix) || minedAtUnix < 0) {
+        throw new Error("mined time is not a unix second");
+    }
+    const delay = Number(exitSeconds);
+    if (!Number.isSafeInteger(delay) || delay < 0) throw new Error("exit delay is not a whole number of seconds");
+    return minedAtUnix + delay;
+}
+
+export function describeExitClock(input: {
+    txid: string;
+    minedAt: number | null;
+    exitSeconds: bigint;
+    now: number;
+}): { text: string; open: boolean } {
+    const short = `${input.txid.slice(0, 8)}…${input.txid.slice(-8)}`;
+    if (input.minedAt === null) {
+        return {
+            text: `Bitcoin output ${short} is not mined yet, so the exit clock has not started.`,
+            open: false,
+        };
+    }
+    const opens = exitOpensAt(input.minedAt, input.exitSeconds);
+    const mined = new Date(input.minedAt * 1000).toISOString().replace(".000Z", "Z");
+    const ready = new Date(opens * 1000).toISOString().replace(".000Z", "Z");
+    const delay = input.exitSeconds.toString();
+    if (input.now >= opens) {
+        return {
+            text: `CSV starts when Bitcoin output ${short} is mined (${mined}), not when the virtual coin is created. ${delay}s from that mine time was ${ready}, so the exit is open.`,
+            open: true,
+        };
+    }
+    return {
+        text: `CSV starts when Bitcoin output ${short} is mined (${mined}), not when the virtual coin is created. ${delay}s from that mine time opens the exit at ${ready}.`,
+        open: false,
+    };
+}
+
+/** Block time of a Bitcoin transaction, or null when it is still unconfirmed. */
+export async function bitcoinMinedAt(explorerUrl: string, txid: string): Promise<number | null> {
+    const response = await fetch(`${explorerUrl.replace(/\/$/, "")}/tx/${txid}`);
+    if (!response.ok) throw new Error(`bitcoin output lookup failed: ${response.status}`);
+    const body = (await response.json()) as { status?: { confirmed?: boolean; block_time?: number } };
+    if (!body.status?.confirmed) return null;
+    if (typeof body.status.block_time !== "number") throw new Error("bitcoin output has no mined time");
+    return body.status.block_time;
 }
 
 /** Operator unilateral exit delay. Public arkd requires the escrow exit to be at least this. */

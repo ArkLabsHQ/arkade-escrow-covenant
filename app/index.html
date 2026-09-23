@@ -124,8 +124,9 @@
                 <input id="exit" type="number" min="512" step="512" required />
             </label>
             <p class="hint">
-                The two exit keys can spend after this. Public operators require a
-                seconds delay, a multiple of 512, at least their unilateral exit delay.
+                This is a CSV. The seconds start when the Bitcoin output is mined,
+                not when the virtual coin appears. Public operators require a
+                multiple of 512, at least their unilateral exit delay.
             </p>
             <button id="prepare" type="submit">Create escrow</button>
         </form>
@@ -145,6 +146,7 @@
                 <button id="unilateral" type="button" disabled>Unilateral exit</button>
             </div>
             <p class="hint">complete · cancel · unilateral. Each spend takes one coin.</p>
+            <p id="exit-clock" class="hint"></p>
         </section>
 
         <details>
