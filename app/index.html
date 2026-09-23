@@ -138,10 +138,13 @@
                 <input id="load-address" autocomplete="off" spellcheck="false" placeholder="tark1…" />
             </label>
             <button id="load-escrow" type="button">Load escrow</button>
+            <p id="load-status" class="hint"></p>
             <p class="hint">
-                A new session keeps the oracle key. Paste an escrow address created
-                with that key to resume it. The address is remembered in this browser
-                and in the downloaded key file.
+                Load compiles the contract artifact with the buyer and seller
+                addresses, amount, refund time, exit delay, and the keys on this
+                page. That taproot has to equal the pasted address. A saved record
+                fills the fields. If it does not match, the indexer coins are still
+                listed and the compiled address is shown.
             </p>
         </section>
 
@@ -170,24 +173,24 @@
             <p id="oracle"></p>
             <p id="keys"></p>
             <label>
-                Buyer nsec
-                <input id="buyer-secret" type="password" autocomplete="off" spellcheck="false" placeholder="nsec1…" />
+                Buyer key
+                <input id="buyer-secret" type="password" autocomplete="off" spellcheck="false" placeholder="nsec, hex, or 12 words" />
             </label>
             <label>
-                Seller nsec
-                <input id="seller-secret" type="password" autocomplete="off" spellcheck="false" placeholder="nsec1…" />
+                Seller key
+                <input id="seller-secret" type="password" autocomplete="off" spellcheck="false" placeholder="nsec, hex, or 12 words" />
             </label>
-            <button id="import-secrets" class="small" type="button">Use these nsecs</button>
+            <button id="import-secrets" class="small" type="button">Use these keys</button>
             <div class="row">
                 <button id="download-keys" class="small" type="button">Download keys</button>
                 <button id="restore-keys" class="small" type="button">Restore keys</button>
                 <input id="restore-file" type="file" accept="application/json,.json" hidden />
             </div>
             <p class="hint">
-                The pasted addresses are where an off-chain payout goes. The nsecs
-                are the two keys that sign the on-chain exit after the unroll is
-                mined. Paste both, then create the escrow again so the address
-                matches the funded one.
+                The pasted addresses are where an off-chain payout goes. A seller
+                wallet mnemonic is the 12 or 24 words from Arkade.Money. On mutinynet
+                those words use the testnet BIP86 key. An nsec or 64-character hex
+                key works too. Either field can be left blank.
             </p>
             <pre id="hops"></pre>
         </details>

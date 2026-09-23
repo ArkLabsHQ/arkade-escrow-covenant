@@ -9,12 +9,14 @@ import {
     OnchainWallet,
     RestArkProvider,
     RestEmulatorProvider,
+    MnemonicIdentity,
     RestIndexerProvider,
     SingleKey,
     Unroll,
     timelockToSequence,
     Transaction,
     type Network,
+    type VirtualCoin,
 } from "@arkade-os/sdk";
 
 import { cancelOutputs, completeOutputs, unilateralOutputs, type PayOutput } from "./outputs.ts";
@@ -184,12 +186,35 @@ export function lastEscrowAddress(): string {
     return localStorage.getItem(LAST_ESCROW) ?? "";
 }
 
-/** Buyer or seller secret: 32-byte hex, or a Nostr nsec. */
-export function secretToKey(text: string): SingleKey {
-    const trimmed = text.trim();
+/** Unspent virtual coins locked to an Arkade address. Works without the contract parameters. */
+export async function coinsForAddress(demo: DemoNetwork, address: string): Promise<VirtualCoin[]> {
+    const decoded = ArkAddress.decode(address.trim());
+    const script = `5120${hex.encode(decoded.vtxoTaprootKey)}`;
+    const { vtxos } = await new RestIndexerProvider(demo.arkUrl).getVtxos({ scripts: [script] });
+    return vtxos.filter((coin) => !coin.isSpent && !coin.spentBy);
+}
+
+/**
+ * Buyer or seller secret.
+ * A 64-character hex key, a Nostr nsec, or the BIP39 words from an Arkade wallet.
+ * Words use the same BIP86 key the wallet uses: coin type 0 on bitcoin, coin type 1 on mutinynet.
+ */
+export function secretToKey(text: string, opts?: { mainnet?: boolean }): SingleKey {
+    const trimmed = text.trim().replace(/\s+/g, " ");
     if (/^[0-9a-fA-F]{64}$/.test(trimmed)) return SingleKey.fromHex(trimmed.toLowerCase());
     const lower = trimmed.toLowerCase();
-    if (!lower.startsWith("nsec1")) throw new Error("paste an nsec or a 64-character hex key");
+    const words = lower.split(" ");
+    if (words.length >= 12 && words.every((word) => /^[a-z]+$/.test(word))) {
+        let identity: MnemonicIdentity;
+        try {
+            identity = MnemonicIdentity.fromMnemonic(lower, { isMainnet: opts?.mainnet ?? false });
+        } catch {
+            throw new Error("that mnemonic is not a valid BIP39 phrase");
+        }
+        const secret = (identity as unknown as { derivedKey: Uint8Array }).derivedKey;
+        return SingleKey.fromPrivateKey(secret);
+    }
+    if (!lower.startsWith("nsec1")) throw new Error("paste an nsec, a 64-character hex key, or a 12-word mnemonic");
     let decoded: { prefix: string; words: number[] };
     try {
         decoded = bech32.decode(lower as `${string}1${string}`);

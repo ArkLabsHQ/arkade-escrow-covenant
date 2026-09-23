@@ -4,6 +4,7 @@ import { arkade, EsploraProvider, OnchainWallet, type VirtualCoin } from "@arkad
 
 import {
     bitcoinMinedAt,
+    coinsForAddress,
     DEMO_NETWORKS,
     describeExitClock,
     exitAnchor,
@@ -46,6 +47,7 @@ const exitInput = required<HTMLInputElement>("#exit");
 const prepareButton = required<HTMLButtonElement>("#prepare");
 const loadAddressInput = required<HTMLInputElement>("#load-address");
 const loadEscrowButton = required<HTMLButtonElement>("#load-escrow");
+const loadStatus = required<HTMLElement>("#load-status");
 const contractSection = required<HTMLElement>("#contract");
 const addressCode = required<HTMLElement>("#address");
 const copyButton = required<HTMLButtonElement>("#copy");
@@ -167,11 +169,12 @@ async function createEscrow(expectedAddress?: string): Promise<void> {
         note("this emulator is older than v0.0.8, so refund (CHECKTIME) will be rejected");
     }
     if (expectedAddress && prepared.contract.address !== expectedAddress) {
+        const rebuilt = prepared.contract.address;
         prepared = undefined;
         coins = [];
         fingerprint = "";
         contractSection.hidden = true;
-        throw new Error("the oracle and exit keys in this page do not rebuild that escrow");
+        throw new RebuildMismatch(rebuilt, expectedAddress);
     }
     saveEscrow({
         address: prepared.contract.address,
@@ -188,19 +191,54 @@ async function createEscrow(expectedAddress?: string): Promise<void> {
 
 async function loadByAddress(address: string): Promise<void> {
     const trimmed = address.trim();
+    if (!trimmed) throw new Error("paste an escrow address");
     const found = readEscrows().find((item) => item.address === trimmed);
-    if (!found) {
-        throw new Error("no saved escrow for that address. Restore the key file from the browser that created it.");
+    if (found) {
+        networkSelect.value = found.network;
+        updateWalletLink();
+        buyerInput.value = found.buyer;
+        sellerInput.value = found.seller;
+        amountInput.value = found.amount;
+        timeoutInput.value = found.timeout;
+        exitInput.value = found.exit;
     }
-    networkSelect.value = found.network;
-    updateWalletLink();
-    buyerInput.value = found.buyer;
-    sellerInput.value = found.seller;
-    amountInput.value = found.amount;
-    timeoutInput.value = found.timeout;
-    exitInput.value = found.exit;
-    await createEscrow(found.address);
-    note(`resumed ${found.address}`);
+    try {
+        await createEscrow(trimmed);
+    } catch (error) {
+        const rebuilt = error instanceof RebuildMismatch ? error.rebuilt : undefined;
+        const reason = error instanceof Error ? error.message : String(error);
+        await showUnmatched(trimmed, rebuilt, reason);
+        return;
+    }
+    const line = found
+        ? `Resumed ${trimmed} from the saved parameters.`
+        : `Rebuilt ${trimmed} from the contract artifact and the parameters on this page.`;
+    loadStatus.textContent = line;
+    note(line);
+}
+
+async function showUnmatched(address: string, rebuilt: string | undefined, reason: string): Promise<void> {
+    const watched = await coinsForAddress(selectedNetwork(), address);
+    prepared = undefined;
+    fingerprint = "";
+    coins = watched;
+    addressCode.textContent = address;
+    contractSection.hidden = false;
+    fillCoinSelect();
+    balanceLine.textContent = describeCoins();
+    exitClock.textContent = "";
+    hopsLine.textContent = "";
+    const unrolled = watched.some((coin) => coin.isUnrolled);
+    const coinsLine =
+        watched.length === 0
+            ? "The indexer has no unspent coins at that address."
+            : `${describeCoins()} ${unrolled ? "The funding transaction is on Bitcoin." : "It is still off chain."}`;
+    const compiled = rebuilt
+        ? `Compiling the artifact with these addresses, amount, refund time, exit delay, and keys produced ${rebuilt}.`
+        : `The artifact could not be compiled with the parameters on this page: ${reason}`;
+    const line = `${coinsLine} ${compiled} Change a parameter and load again until the compiled address is the one you pasted.`;
+    loadStatus.textContent = line;
+    note(line);
 }
 
 async function unlock(): Promise<void> {
@@ -236,10 +274,10 @@ async function unroll(): Promise<void> {
 async function importSecrets(): Promise<void> {
     const buyerText = buyerSecret.value.trim();
     const sellerText = sellerSecret.value.trim();
-    if (!buyerText || !sellerText) throw new Error("paste the buyer nsec and the seller nsec");
-    const buyer = secretToKey(buyerText);
-    const seller = secretToKey(sellerText);
-    keys = { buyer, seller, oracle: keys.oracle };
+    if (!buyerText && !sellerText) throw new Error("paste a buyer or seller key");
+    const mainnet = selectedNetwork().name === "bitcoin";
+    if (buyerText) keys = { ...keys, buyer: secretToKey(buyerText, { mainnet }) };
+    if (sellerText) keys = { ...keys, seller: secretToKey(sellerText, { mainnet }) };
     saveStoredKeys(exportStoredKeys(keys));
     buyerSecret.value = "";
     sellerSecret.value = "";
@@ -249,7 +287,8 @@ async function importSecrets(): Promise<void> {
     contractSection.hidden = true;
     hopsLine.textContent = "";
     await showKeys();
-    note("replaced the buyer and seller keys. Create the escrow again.");
+    const which = buyerText && sellerText ? "buyer and seller keys" : buyerText ? "buyer key" : "seller key";
+    note(`replaced the ${which}`);
 }
 
 async function exit(): Promise<void> {
@@ -281,9 +320,7 @@ function payouts(current: PreparedEscrow): { buyer: Uint8Array; seller: Uint8Arr
     return { buyer: buyer.pkScript, seller: seller.pkScript };
 }
 
-async function refreshCoins(announce: boolean): Promise<void> {
-    if (!prepared) return;
-    coins = await prepared.contract.getUtxos();
+function fillCoinSelect(): void {
     const previous = coinSelect.value;
     coinSelect.replaceChildren(
         ...coins.map((coin) => {
@@ -294,6 +331,12 @@ async function refreshCoins(announce: boolean): Promise<void> {
         }),
     );
     if (coins.some((coin) => `${coin.txid}:${coin.vout}` === previous)) coinSelect.value = previous;
+}
+
+async function refreshCoins(announce: boolean): Promise<void> {
+    if (!prepared) return;
+    coins = await prepared.contract.getUtxos();
+    fillCoinSelect();
     const total = coins.reduce((sum, coin) => sum + coin.value, 0);
     balanceLine.textContent = describeCoins();
     if (announce && coins.length > 0) note(`found ${total} sats`);
@@ -523,6 +566,15 @@ function syncButtons(): void {
     cancelButton.disabled = !ready;
     unilateralButton.disabled = !ready || !exitOpen;
     unrollButton.disabled = !ready;
+}
+
+class RebuildMismatch extends Error {
+    readonly rebuilt: string;
+
+    constructor(rebuilt: string, expected: string) {
+        super(`compiled ${rebuilt}, which is not ${expected}`);
+        this.rebuilt = rebuilt;
+    }
 }
 
 function note(message: string): void {
