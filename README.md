@@ -34,7 +34,6 @@ pnpm dev
 
 The page is http://127.0.0.1:4173. `pnpm build` writes `dist/`. Creating an escrow saves its address and parameters in the browser, and the key download includes that list. A later session keeps the oracle key. Paste the escrow address, or reload, and the page rebuilds the contract with the stored oracle.
 
-An escrow created before the exit was a seconds CSV cannot be spent offchain. Create a new one and fund that address. Mutinynet's unilateral exit delay is 2048 seconds, and the delay must be a multiple of 512. That delay is a CSV on the funding transaction's output. The seconds start when that transaction is mined, so it has to be unrolled onto Bitcoin first. The page keeps Unilateral exit closed until then. Each unroll hop is a package: the off-chain transaction plus a fee child that spends its pay-to-anchor. The fee wallet on the page pays that child. The Bitcoin emulator at `emulator.arkade.computer` is still v0.0.7 and has no `CHECKTIME`, so refund fails there. The page says so when the version starts with `v0.0.7`.
 
 ## GitHub Pages
 
