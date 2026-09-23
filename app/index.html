@@ -151,10 +151,17 @@
             <summary>Oracle and exit keys</summary>
             <p id="oracle"></p>
             <p id="keys"></p>
+            <div class="row">
+                <button id="download-keys" class="small" type="button">Download keys</button>
+                <button id="restore-keys" class="small" type="button">Restore keys</button>
+                <input id="restore-file" type="file" accept="application/json,.json" hidden />
+            </div>
             <p class="hint">
                 The pasted addresses are where the coins go. These keys only co-sign
-                the unilateral exit, and the oracle key only signs the release. They
-                stay in this browser.
+                the unilateral exit, and the oracle key only signs the release. A
+                reload keeps them. Download the file to keep a copy, and restore it
+                in another browser. Restoring replaces the keys, so an escrow already
+                created with the previous ones needs that same file.
             </p>
         </details>
         <div id="log"></div>

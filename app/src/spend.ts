@@ -57,16 +57,56 @@ export interface DemoKeys {
 
 const KEY_STORAGE = "arkade-escrow-demo-keys";
 
+export interface StoredKeys {
+    buyer: string;
+    seller: string;
+    oracle: string;
+}
+
+/** The three secret keys this page holds. Same file the download button writes. */
+export function storedKeysFromText(text: string): StoredKeys {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        throw new Error("that file is not JSON");
+    }
+    if (!parsed || typeof parsed !== "object") throw new Error("that file is not a key backup");
+    const record = parsed as Record<string, unknown>;
+    const stored = {} as StoredKeys;
+    for (const name of ["buyer", "seller", "oracle"] as const) {
+        const value = record[name];
+        if (typeof value !== "string" || !/^[0-9a-fA-F]{64}$/.test(value.trim())) {
+            throw new Error(`${name} key must be 64 hex characters`);
+        }
+        stored[name] = value.trim().toLowerCase();
+    }
+    return stored;
+}
+
+export function keysFromStored(stored: StoredKeys): DemoKeys {
+    return {
+        buyer: SingleKey.fromHex(stored.buyer),
+        seller: SingleKey.fromHex(stored.seller),
+        oracle: SingleKey.fromHex(stored.oracle),
+    };
+}
+
+export function exportStoredKeys(keys: DemoKeys): StoredKeys {
+    return {
+        buyer: keys.buyer.toHex(),
+        seller: keys.seller.toHex(),
+        oracle: keys.oracle.toHex(),
+    };
+}
+
+export function saveStoredKeys(stored: StoredKeys): void {
+    localStorage.setItem(KEY_STORAGE, JSON.stringify(stored));
+}
+
 export function loadKeys(): DemoKeys {
     const saved = localStorage.getItem(KEY_STORAGE);
-    if (saved) {
-        const parsed = JSON.parse(saved) as { buyer: string; seller: string; oracle: string };
-        return {
-            buyer: SingleKey.fromHex(parsed.buyer),
-            seller: SingleKey.fromHex(parsed.seller),
-            oracle: SingleKey.fromHex(parsed.oracle),
-        };
-    }
+    if (saved) return keysFromStored(storedKeysFromText(saved));
     const keys = {
         buyer: SingleKey.fromRandomBytes(),
         seller: SingleKey.fromRandomBytes(),

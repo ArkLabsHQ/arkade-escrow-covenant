@@ -4,8 +4,12 @@ import { arkade } from "@arkade-os/sdk";
 
 import {
     DEMO_NETWORKS,
+    exportStoredKeys,
+    keysFromStored,
     loadKeys,
     payoutFromAddress,
+    saveStoredKeys,
+    storedKeysFromText,
     minimumExitDelay,
     prepareEscrow,
     RELEASE_LABEL,
@@ -37,9 +41,12 @@ const cancelButton = required<HTMLButtonElement>("#cancel");
 const unilateralButton = required<HTMLButtonElement>("#unilateral");
 const oracleLine = required<HTMLElement>("#oracle");
 const keysLine = required<HTMLElement>("#keys");
+const downloadKeysButton = required<HTMLButtonElement>("#download-keys");
+const restoreKeysButton = required<HTMLButtonElement>("#restore-keys");
+const restoreFile = required<HTMLInputElement>("#restore-file");
 const log = required<HTMLElement>("#log");
 
-const keys = loadKeys();
+let keys = loadKeys();
 let prepared: PreparedEscrow | undefined;
 let coins: arkade.Utxo[] = [];
 let fingerprint = "";
@@ -84,6 +91,13 @@ copyButton.addEventListener("click", () => {
 completeButton.addEventListener("click", () => void run("unlock", unlock));
 cancelButton.addEventListener("click", () => void run("refund", refund));
 unilateralButton.addEventListener("click", () => void run("exit", exit));
+downloadKeysButton.addEventListener("click", downloadKeys);
+restoreKeysButton.addEventListener("click", () => restoreFile.click());
+restoreFile.addEventListener("change", () => {
+    const file = restoreFile.files?.[0];
+    restoreFile.value = "";
+    if (file) void run("restore", () => restoreKeys(file));
+});
 
 window.setInterval(() => {
     if (prepared && fingerprint === currentFingerprint()) void refreshCoins(false);
@@ -203,6 +217,29 @@ function describeCoins(): string {
         return "No coins yet. Send sats to the address above from Arkade.Money.";
     const total = coins.reduce((sum, coin) => sum + coin.value, 0);
     return `${coins.length} coin${coins.length === 1 ? "" : "s"}, ${total} sats.`;
+}
+
+function downloadKeys(): void {
+    const body = `${JSON.stringify(exportStoredKeys(keys), null, 2)}\n`;
+    const url = URL.createObjectURL(new Blob([body], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "arkade-escrow-keys.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    note("downloaded the oracle and exit keys");
+}
+
+async function restoreKeys(file: File): Promise<void> {
+    const stored = storedKeysFromText(await file.text());
+    saveStoredKeys(stored);
+    keys = keysFromStored(stored);
+    prepared = undefined;
+    coins = [];
+    fingerprint = "";
+    contractSection.hidden = true;
+    await showKeys();
+    note("restored the oracle and exit keys. Create the escrow again.");
 }
 
 async function showKeys(): Promise<void> {
