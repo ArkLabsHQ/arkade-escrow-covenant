@@ -10,7 +10,7 @@
         "dev": "node scripts/dev.mjs",
         "build": "node scripts/build.mjs",
         "check": "node scripts/check.mjs",
-        "test": "node --experimental-strip-types --test app/src/outputs.test.ts && pnpm check"
+        "test": "node --experimental-strip-types --test app/src/outputs.test.ts app/src/keys.test.ts app/src/exit.test.ts && pnpm check"
     },
     "dependencies": {
         "@arkade-os/sdk": "file:vendor/arkade-os-sdk-0.4.74-411b43f.tgz",

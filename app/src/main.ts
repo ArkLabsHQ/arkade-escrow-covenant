@@ -1,19 +1,36 @@
 import { hex } from "@scure/base";
 
-import { arkade } from "@arkade-os/sdk";
+import { arkade, EsploraProvider, OnchainWallet, type VirtualCoin } from "@arkade-os/sdk";
 
 import {
+    bitcoinMinedAt,
     DEMO_NETWORKS,
+    describeExitClock,
+    exitAnchor,
+    escrowsFromBackup,
+    exportStoredKeys,
+    feeWallet,
+    keysFromStored,
+    lastEscrowAddress,
+    loadFeeKey,
     loadKeys,
+    readEscrows,
+    saveEscrow,
+    writeEscrows,
     payoutFromAddress,
+    saveStoredKeys,
+    storedKeysFromText,
     minimumExitDelay,
     prepareEscrow,
     RELEASE_LABEL,
+    listUnrollHops,
     releaseMessage,
+    secretToKey,
     shortHex,
     spendCancel,
     spendComplete,
-    spendUnilateral,
+    spendExitOnchain,
+    unrollOnce,
     type DemoNetwork,
     type PreparedEscrow,
 } from "./spend.ts";
@@ -27,6 +44,8 @@ const amountInput = required<HTMLInputElement>("#amount");
 const timeoutInput = required<HTMLInputElement>("#timeout");
 const exitInput = required<HTMLInputElement>("#exit");
 const prepareButton = required<HTMLButtonElement>("#prepare");
+const loadAddressInput = required<HTMLInputElement>("#load-address");
+const loadEscrowButton = required<HTMLButtonElement>("#load-escrow");
 const contractSection = required<HTMLElement>("#contract");
 const addressCode = required<HTMLElement>("#address");
 const copyButton = required<HTMLButtonElement>("#copy");
@@ -35,15 +54,30 @@ const coinSelect = required<HTMLSelectElement>("#coin");
 const completeButton = required<HTMLButtonElement>("#complete");
 const cancelButton = required<HTMLButtonElement>("#cancel");
 const unilateralButton = required<HTMLButtonElement>("#unilateral");
+const unrollButton = required<HTMLButtonElement>("#unroll");
+const exitClock = required<HTMLElement>("#exit-clock");
+const feeLine = required<HTMLElement>("#fee-wallet");
 const oracleLine = required<HTMLElement>("#oracle");
 const keysLine = required<HTMLElement>("#keys");
+const buyerSecret = required<HTMLInputElement>("#buyer-secret");
+const sellerSecret = required<HTMLInputElement>("#seller-secret");
+const importSecretsButton = required<HTMLButtonElement>("#import-secrets");
+const hopsLine = required<HTMLElement>("#hops");
+const downloadKeysButton = required<HTMLButtonElement>("#download-keys");
+const restoreKeysButton = required<HTMLButtonElement>("#restore-keys");
+const restoreFile = required<HTMLInputElement>("#restore-file");
 const log = required<HTMLElement>("#log");
 
-const keys = loadKeys();
+let keys = loadKeys();
+const feeKey = loadFeeKey();
 let prepared: PreparedEscrow | undefined;
-let coins: arkade.Utxo[] = [];
+let coins: VirtualCoin[] = [];
 let fingerprint = "";
 let busy = false;
+let exitOpen = false;
+let exitClockToken = 0;
+const minedAtByTxid = new Map<string, number | null>();
+let hopCache = { key: "", at: 0, text: "" };
 
 networkSelect.replaceChildren(
     ...DEMO_NETWORKS.map((demo) => {
@@ -63,12 +97,20 @@ networkSelect.value = localStorage.getItem("arkade-escrow-network") ?? "mutinyne
 updateWalletLink();
 
 void showKeys();
+void showFeeWallet();
 networkSelect.addEventListener("change", () => {
     updateWalletLink();
     markStale();
     void raiseExitToOperator();
+    void showFeeWallet();
 });
-void raiseExitToOperator();
+void (async () => {
+    await raiseExitToOperator();
+    const last = lastEscrowAddress();
+    if (last && readEscrows().some((item) => item.address === last)) {
+        await run("resume", () => loadByAddress(last));
+    }
+})();
 for (const input of [buyerInput, sellerInput, amountInput, timeoutInput, exitInput]) {
     input.addEventListener("input", markStale);
 }
@@ -77,6 +119,7 @@ form?.addEventListener("submit", (event) => {
     event.preventDefault();
     void run("create", createEscrow);
 });
+loadEscrowButton.addEventListener("click", () => void run("load", () => loadByAddress(loadAddressInput.value)));
 copyButton.addEventListener("click", () => {
     void navigator.clipboard.writeText(addressCode.textContent ?? "");
     note("copied the funding address");
@@ -84,12 +127,22 @@ copyButton.addEventListener("click", () => {
 completeButton.addEventListener("click", () => void run("unlock", unlock));
 cancelButton.addEventListener("click", () => void run("refund", refund));
 unilateralButton.addEventListener("click", () => void run("exit", exit));
+unrollButton.addEventListener("click", () => void run("unroll", unroll));
+coinSelect.addEventListener("change", () => void updateExitClock());
+importSecretsButton.addEventListener("click", () => void run("keys", importSecrets));
+downloadKeysButton.addEventListener("click", downloadKeys);
+restoreKeysButton.addEventListener("click", () => restoreFile.click());
+restoreFile.addEventListener("change", () => {
+    const file = restoreFile.files?.[0];
+    restoreFile.value = "";
+    if (file) void run("restore", () => restoreKeys(file));
+});
 
 window.setInterval(() => {
     if (prepared && fingerprint === currentFingerprint()) void refreshCoins(false);
 }, 4000);
 
-async function createEscrow(): Promise<void> {
+async function createEscrow(expectedAddress?: string): Promise<void> {
     const demo = selectedNetwork();
     const amount = readAmount();
     const timeoutAt = readTimeout();
@@ -113,7 +166,41 @@ async function createEscrow(): Promise<void> {
     if (prepared.emulatorVersion.startsWith("v0.0.7")) {
         note("this emulator is older than v0.0.8, so refund (CHECKTIME) will be rejected");
     }
+    if (expectedAddress && prepared.contract.address !== expectedAddress) {
+        prepared = undefined;
+        coins = [];
+        fingerprint = "";
+        contractSection.hidden = true;
+        throw new Error("the oracle and exit keys in this page do not rebuild that escrow");
+    }
+    saveEscrow({
+        address: prepared.contract.address,
+        network: demo.name,
+        buyer: buyerInput.value.trim(),
+        seller: sellerInput.value.trim(),
+        amount: amountInput.value,
+        timeout: timeoutInput.value,
+        exit: exitInput.value,
+    });
+    loadAddressInput.value = prepared.contract.address;
     await refreshCoins(true);
+}
+
+async function loadByAddress(address: string): Promise<void> {
+    const trimmed = address.trim();
+    const found = readEscrows().find((item) => item.address === trimmed);
+    if (!found) {
+        throw new Error("no saved escrow for that address. Restore the key file from the browser that created it.");
+    }
+    networkSelect.value = found.network;
+    updateWalletLink();
+    buyerInput.value = found.buyer;
+    sellerInput.value = found.seller;
+    amountInput.value = found.amount;
+    timeoutInput.value = found.timeout;
+    exitInput.value = found.exit;
+    await createEscrow(found.address);
+    note(`resumed ${found.address}`);
 }
 
 async function unlock(): Promise<void> {
@@ -134,12 +221,49 @@ async function refund(): Promise<void> {
     await refreshCoins(true);
 }
 
+async function unroll(): Promise<void> {
+    const current = requirePrepared();
+    const coin = selectedCoin();
+    const progress = await unrollOnce(current.demo, coin, feeKey);
+    if (progress.kind === "done") note(`unrolled ${progress.txid}`);
+    else if (progress.kind === "waiting") note(`waiting for ${progress.txid} to be mined`);
+    else note(`broadcast ${progress.txid}`);
+    hopCache.at = 0;
+    await showFeeWallet();
+    await updateExitClock();
+}
+
+async function importSecrets(): Promise<void> {
+    const buyerText = buyerSecret.value.trim();
+    const sellerText = sellerSecret.value.trim();
+    if (!buyerText || !sellerText) throw new Error("paste the buyer nsec and the seller nsec");
+    const buyer = secretToKey(buyerText);
+    const seller = secretToKey(sellerText);
+    keys = { buyer, seller, oracle: keys.oracle };
+    saveStoredKeys(exportStoredKeys(keys));
+    buyerSecret.value = "";
+    sellerSecret.value = "";
+    prepared = undefined;
+    coins = [];
+    fingerprint = "";
+    contractSection.hidden = true;
+    hopsLine.textContent = "";
+    await showKeys();
+    note("replaced the buyer and seller keys. Create the escrow again.");
+}
+
 async function exit(): Promise<void> {
     const current = requirePrepared();
     const coin = selectedCoin();
-    const { seller } = payouts(current);
-    const txid = await spendUnilateral(current, coin, seller);
-    note(`unilateral exit to the seller: ${txid}`);
+    const minedAt = await bitcoinMinedAt(current.demo.explorerUrl, coin.txid);
+    if (minedAt === null) throw new Error("unroll the funding transaction before the on-chain exit");
+    const seller = await OnchainWallet.create(
+        current.seller,
+        current.demo.name,
+        new EsploraProvider(current.demo.explorerUrl),
+    );
+    const txid = await spendExitOnchain(current, coin, seller.address);
+    note(`on-chain exit to ${seller.address}: ${txid}`);
     await refreshCoins(true);
 }
 
@@ -172,11 +296,11 @@ async function refreshCoins(announce: boolean): Promise<void> {
     if (coins.some((coin) => `${coin.txid}:${coin.vout}` === previous)) coinSelect.value = previous;
     const total = coins.reduce((sum, coin) => sum + coin.value, 0);
     balanceLine.textContent = describeCoins();
-    syncButtons();
     if (announce && coins.length > 0) note(`found ${total} sats`);
+    await updateExitClock();
 }
 
-function selectedCoin(): arkade.Utxo {
+function selectedCoin(): VirtualCoin {
     const coin = coins.find((item) => `${item.txid}:${item.vout}` === coinSelect.value) ?? coins[0];
     if (!coin) throw new Error("fund the escrow first");
     return coin;
@@ -195,7 +319,7 @@ function markStale(): void {
         fingerprint === currentFingerprint()
             ? describeCoins()
             : "The form changed. Create the escrow again before spending.";
-    syncButtons();
+    void updateExitClock();
 }
 
 function describeCoins(): string {
@@ -203,6 +327,48 @@ function describeCoins(): string {
         return "No coins yet. Send sats to the address above from Arkade.Money.";
     const total = coins.reduce((sum, coin) => sum + coin.value, 0);
     return `${coins.length} coin${coins.length === 1 ? "" : "s"}, ${total} sats.`;
+}
+
+function downloadKeys(): void {
+    const body = `${JSON.stringify({ ...exportStoredKeys(keys), escrows: readEscrows() }, null, 2)}\n`;
+    const url = URL.createObjectURL(new Blob([body], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "arkade-escrow-keys.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    note("downloaded the oracle and exit keys");
+}
+
+async function restoreKeys(file: File): Promise<void> {
+    const text = await file.text();
+    const stored = storedKeysFromText(text);
+    const escrows = escrowsFromBackup(text);
+    saveStoredKeys(stored);
+    if (escrows.length > 0) writeEscrows(escrows);
+    keys = keysFromStored(stored);
+    prepared = undefined;
+    coins = [];
+    fingerprint = "";
+    contractSection.hidden = true;
+    hopsLine.textContent = "";
+    await showKeys();
+    const address = escrows[0]?.address ?? lastEscrowAddress();
+    if (address && readEscrows().some((item) => item.address === address)) {
+        await loadByAddress(address);
+        return;
+    }
+    note("restored the oracle and exit keys. Paste an escrow address to resume.");
+}
+
+async function showFeeWallet(): Promise<void> {
+    try {
+        const wallet = await feeWallet(selectedNetwork(), feeKey);
+        const balance = await wallet.getBalance();
+        feeLine.textContent = `Fee wallet ${wallet.address} · ${balance} sats. Unroll spends this on the pay-to-anchor.`;
+    } catch (error) {
+        feeLine.textContent = `fee wallet failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
 }
 
 async function showKeys(): Promise<void> {
@@ -282,6 +448,7 @@ async function run(label: string, action: () => Promise<void>): Promise<void> {
     completeButton.disabled = true;
     cancelButton.disabled = true;
     unilateralButton.disabled = true;
+    unrollButton.disabled = true;
     try {
         await action();
     } catch (error) {
@@ -293,11 +460,69 @@ async function run(label: string, action: () => Promise<void>): Promise<void> {
     }
 }
 
+async function updateExitClock(): Promise<void> {
+    const token = ++exitClockToken;
+    const current = prepared;
+    const coin = coins.find((item) => `${item.txid}:${item.vout}` === coinSelect.value) ?? coins[0];
+    if (!current || fingerprint !== currentFingerprint() || !coin) {
+        exitClock.textContent = "";
+        hopsLine.textContent = "";
+        exitOpen = false;
+        syncButtons();
+        return;
+    }
+    const anchor = exitAnchor(coin);
+    if (!anchor) {
+        exitClock.textContent = "This coin has no Bitcoin output yet, so the exit clock has not started.";
+        exitOpen = false;
+        syncButtons();
+        return;
+    }
+    try {
+        const minedAt = await cachedMinedAt(current.demo.explorerUrl, anchor.txid);
+        if (token !== exitClockToken) return;
+        const described = describeExitClock({
+            txid: anchor.txid,
+            minedAt,
+            exitSeconds: current.exit,
+            now: nowSeconds(),
+        });
+        exitClock.textContent = described.text;
+        exitOpen = described.open;
+        hopsLine.textContent = await hopText(current.demo, coin);
+    } catch (error) {
+        if (token !== exitClockToken) return;
+        exitClock.textContent = `exit clock failed: ${error instanceof Error ? error.message : String(error)}`;
+        exitOpen = false;
+    }
+    syncButtons();
+}
+
+async function hopText(demo: DemoNetwork, coin: { txid: string; vout: number }): Promise<string> {
+    const key = `${coin.txid}:${coin.vout}`;
+    if (hopCache.key === key && Date.now() - hopCache.at < 20_000) return hopCache.text;
+    const hops = await listUnrollHops(demo, coin);
+    const text = hops
+        .map((hop, index) => `${index + 1}. ${hop.onchain.padEnd(9)} ${hop.kind.padEnd(12)} ${hop.txid}`)
+        .join("\n");
+    hopCache = { key, at: Date.now(), text };
+    return text;
+}
+
+async function cachedMinedAt(explorerUrl: string, txid: string): Promise<number | null> {
+    const cached = minedAtByTxid.get(txid);
+    if (cached !== undefined && cached !== null) return cached;
+    const minedAt = await bitcoinMinedAt(explorerUrl, txid);
+    if (minedAt !== null) minedAtByTxid.set(txid, minedAt);
+    return minedAt;
+}
+
 function syncButtons(): void {
     const ready = !busy && coins.length > 0 && !!prepared && fingerprint === currentFingerprint();
     completeButton.disabled = !ready;
     cancelButton.disabled = !ready;
-    unilateralButton.disabled = !ready;
+    unilateralButton.disabled = !ready || !exitOpen;
+    unrollButton.disabled = !ready;
 }
 
 function note(message: string): void {
