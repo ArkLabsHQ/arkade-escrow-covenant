@@ -1,0 +1,254 @@
+{
+  "contractName": "Escrow",
+  "constructorInputs": [
+    {
+      "name": "partyAPk",
+      "type": "pubkey"
+    },
+    {
+      "name": "partyBPk",
+      "type": "pubkey"
+    },
+    {
+      "name": "oraclePk",
+      "type": "pubkey"
+    },
+    {
+      "name": "oracleMessageHash",
+      "type": "bytes32"
+    },
+    {
+      "name": "partyAScript",
+      "type": "bytes32"
+    },
+    {
+      "name": "partyBScript",
+      "type": "bytes32"
+    },
+    {
+      "name": "amount",
+      "type": "int"
+    },
+    {
+      "name": "timeoutAt",
+      "type": "int"
+    },
+    {
+      "name": "exit",
+      "type": "int"
+    }
+  ],
+  "functions": [
+    {
+      "name": "complete",
+      "arkade": {
+        "inputs": [
+          {
+            "name": "oracleMsg",
+            "type": "bytes32"
+          },
+          {
+            "name": "oracleSig",
+            "type": "signature"
+          }
+        ],
+        "asm": [
+          "<amount>",
+          "<partyBScript>",
+          "<partyAScript>",
+          "<oracleMessageHash>",
+          "<oraclePk>",
+          "OP_INSPECTNUMINPUTS",
+          "1",
+          "OP_EQUAL",
+          "OP_VERIFY",
+          "OP_5",
+          "OP_PICK",
+          "OP_SHA256",
+          "OP_2",
+          "OP_ROLL",
+          "OP_EQUAL",
+          "OP_VERIFY",
+          "OP_5",
+          "OP_ROLL",
+          "OP_5",
+          "OP_ROLL",
+          "OP_2",
+          "OP_ROLL",
+          "OP_CHECKSIGFROMSTACK",
+          "OP_VERIFY",
+          "OP_PUSHCURRENTINPUTINDEX",
+          "OP_INSPECTINPUTVALUE",
+          "OP_0",
+          "OP_PICK",
+          "OP_4",
+          "OP_PICK",
+          "OP_GREATERTHANOREQUAL",
+          "OP_VERIFY",
+          "OP_0",
+          "OP_ROLL",
+          "OP_3",
+          "OP_PICK",
+          "OP_SUB",
+          "0",
+          "OP_INSPECTOUTPUTVALUE",
+          "OP_4",
+          "OP_ROLL",
+          "OP_GREATERTHANOREQUAL",
+          "OP_VERIFY",
+          "0",
+          "OP_INSPECTOUTPUTSCRIPTPUBKEY",
+          "OP_DROP",
+          "OP_3",
+          "OP_ROLL",
+          "OP_EQUAL",
+          "OP_VERIFY",
+          "OP_0",
+          "OP_PICK",
+          "330",
+          "OP_GREATERTHAN",
+          "OP_IF",
+          "1",
+          "OP_INSPECTOUTPUTVALUE",
+          "OP_1",
+          "OP_PICK",
+          "OP_GREATERTHANOREQUAL",
+          "OP_VERIFY",
+          "1",
+          "OP_INSPECTOUTPUTSCRIPTPUBKEY",
+          "OP_DROP",
+          "OP_2",
+          "OP_PICK",
+          "OP_EQUAL",
+          "OP_VERIFY",
+          "OP_ENDIF",
+          "OP_1",
+          "OP_NIP",
+          "OP_NIP"
+        ]
+      },
+      "leaves": [
+        {
+          "name": "complete",
+          "witness": [
+            {
+              "name": "serverSig",
+              "type": "signature",
+              "encoding": "schnorr-64",
+              "injected": true
+            },
+            {
+              "name": "emulatorSig",
+              "type": "signature",
+              "encoding": "schnorr-64",
+              "injected": true
+            }
+          ],
+          "asm": [
+            "<SERVER_KEY>",
+            "OP_CHECKSIGVERIFY",
+            "<EMULATOR_KEY:complete>",
+            "OP_CHECKSIG"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cancel",
+      "arkade": {
+        "inputs": [],
+        "asm": [
+          "<timeoutAt>",
+          "<partyAScript>",
+          "OP_INSPECTNUMINPUTS",
+          "1",
+          "OP_EQUAL",
+          "OP_VERIFY",
+          "OP_1",
+          "OP_ROLL",
+          "OP_CHECKTIME",
+          "OP_VERIFY",
+          "0",
+          "OP_INSPECTOUTPUTVALUE",
+          "OP_PUSHCURRENTINPUTINDEX",
+          "OP_INSPECTINPUTVALUE",
+          "OP_GREATERTHANOREQUAL",
+          "OP_VERIFY",
+          "0",
+          "OP_INSPECTOUTPUTSCRIPTPUBKEY",
+          "OP_DROP",
+          "OP_1",
+          "OP_ROLL",
+          "OP_EQUAL",
+          "OP_VERIFY",
+          "OP_1"
+        ]
+      },
+      "leaves": [
+        {
+          "name": "cancel",
+          "witness": [
+            {
+              "name": "serverSig",
+              "type": "signature",
+              "encoding": "schnorr-64",
+              "injected": true
+            },
+            {
+              "name": "emulatorSig",
+              "type": "signature",
+              "encoding": "schnorr-64",
+              "injected": true
+            }
+          ],
+          "asm": [
+            "<SERVER_KEY>",
+            "OP_CHECKSIGVERIFY",
+            "<EMULATOR_KEY:cancel>",
+            "OP_CHECKSIG"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "unilateral",
+      "leaves": [
+        {
+          "name": "unilateral",
+          "witness": [
+            {
+              "name": "partyASig",
+              "type": "signature",
+              "encoding": "schnorr-64"
+            },
+            {
+              "name": "partyBSig",
+              "type": "signature",
+              "encoding": "schnorr-64"
+            }
+          ],
+          "asm": [
+            "<exit>",
+            "OP_CHECKSEQUENCEVERIFY",
+            "OP_DROP",
+            "<partyAPk>",
+            "OP_CHECKSIGVERIFY",
+            "<partyBPk>",
+            "OP_CHECKSIG"
+          ]
+        }
+      ]
+    }
+  ],
+  "source": {
+    "entry": "escrow.ark",
+    "files": {
+      "escrow.ark": "pragma arkade ^0.1.0;\n\n// Spend paths and outputs are drawn in escrow.md.\n\ncontract Escrow(\n  // 32-byte x-only key. Party A funds the coins and co-signs the unilateral exit.\n  pubkey  partyAPk,\n  // 32-byte x-only key. Party B receives `amount` and co-signs the unilateral exit.\n  pubkey  partyBPk,\n  // 32-byte x-only key. Signs the one attestation message.\n  pubkey  oraclePk,\n  // 32 bytes. sha256 of that message. The message itself is also bytes32.\n  bytes32 oracleMessageHash,\n  // 32-byte witness program OP_INSPECTOUTPUTSCRIPTPUBKEY reports. Refund and surplus pay this.\n  bytes32 partyAScript,\n  // 32-byte witness program OP_INSPECTOUTPUTSCRIPTPUBKEY reports. The release pays this.\n  bytes32 partyBScript,\n  // Sats. `complete` pays at least this to party B on output 0.\n  int     amount,\n  // Unix seconds. `cancel` requires the emulator clock to reach this. tx.time cannot\n  // gate it: arkd rebuilds offchain spends of this leaf with nLockTime 0.\n  int     timeoutAt,\n  // Seconds, a multiple of 512, at least the operator's unilateral exit delay.\n  // The spent program sets the BIP68 seconds bit. arkadec older() pushes the\n  // integer as blocks, and public arkd rejects that exit leaf.\n  int     exit\n) {\n  const int DUST = 330;\n\n  function complete(bytes32 oracleMsg, signature oracleSig) {\n    require(tx.numInputs == 1, \"single-input spend required\");\n    require(sha256(oracleMsg) == oracleMessageHash, \"unexpected attestation\");\n    require(checkSigFromStack(oracleSig, oraclePk, oracleMsg), \"invalid oracle signature\");\n\n    int locked = tx.input.current.value;\n    require(locked >= amount, \"escrow underfunded\");\n    int surplus = locked - amount;\n\n    require(tx.outputs[0].value >= amount, \"party B underpaid\");\n    require(tx.outputs[0].scriptPubKey == partyBScript, \"output 0 not party B\");\n\n    // A surplus at or below dust is left unconstrained so it cannot block the release.\n    if (surplus > DUST) {\n      require(tx.outputs[1].value >= surplus, \"party A surplus underpaid\");\n      require(tx.outputs[1].scriptPubKey == partyAScript, \"output 1 not party A\");\n    }\n  }\n\n  function cancel() {\n    require(tx.numInputs == 1, \"single-input spend required\");\n    require(checkTime(timeoutAt), \"timeout not reached\");\n    require(tx.outputs[0].value >= tx.input.current.value, \"party A underpaid\");\n    require(tx.outputs[0].scriptPubKey == partyAScript, \"output 0 not party A\");\n  }\n\n  function unilateral(signature partyASig, signature partyBSig) tapscript {\n    require(older(exit));\n    require(checkMultisig([partyAPk, partyBPk], [partyASig, partyBSig], 2));\n  }\n}\n"
+    }
+  },
+  "compiler": {
+    "name": "arkade-compiler",
+    "version": "0.1.0"
+  },
+  "updatedAt": "2026-09-23T17:18:37.523813881+00:00"
+}
