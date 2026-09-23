@@ -8,12 +8,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
 
 await esbuild.build({
-    entryPoints: [path.join(root, "app/src/main.ts")],
+    entryPoints: [path.join(root, "app/src/main.tsx")],
     bundle: true,
     format: "esm",
     outfile: path.join(dist, "app.js"),
     platform: "browser",
     target: "es2022",
+    jsx: "automatic",
     sourcemap: true,
     logLevel: "info",
 });

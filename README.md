@@ -32,7 +32,7 @@ pnpm test
 pnpm dev
 ```
 
-The page is http://127.0.0.1:4173. `pnpm build` writes `dist/`. The first screen is a grid of saved escrows, or two actions when there are none: new escrow, or load an address. Creating opens a dialog with a buyer section, a seller section, and amount choices of 1,000, 5,000, 10,000, and 50,000 sats, plus a custom amount. Opening a ticket shows Release and Refund. Unroll, the unilateral exit, and keys stay under Advanced. A rebuilt escrow asks you to save `arkade-escrow-keys.json` before you leave. Buyer and seller keys accept an nsec, hex, or the 12 or 24 words from an Arkade wallet.
+The page is http://127.0.0.1:4173. `pnpm build` writes `dist/`. The first screen is a list of saved escrows, or a short empty state: new escrow, or load an address. Creating opens a sheet with a buyer section, a seller section, and amount choices of 1,000, 5,000, 10,000, and 50,000 sats, plus a custom amount. Opening a card shows the amount, a refund sentence, and Release and Refund. Unroll, the unilateral exit, and keys stay under Advanced. Sheets are Base UI dialogs. Copy and errors use Sonner. A rebuilt escrow asks you to save `arkade-escrow-keys.json` before you leave. Buyer and seller keys accept an nsec, hex, or the 12 or 24 words from an Arkade wallet.
 
 
 ## GitHub Pages
