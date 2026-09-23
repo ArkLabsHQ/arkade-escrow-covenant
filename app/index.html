@@ -7,194 +7,369 @@
         <style>
             :root {
                 color-scheme: light;
-                font-family: "Iowan Old Style", Palatino, Georgia, serif;
-                background: #f4f1ea;
-                color: #1c1915;
+                --paper: #e4eee6;
+                --ticket: #f7faf7;
+                --ink: #132018;
+                --green: #0c6a42;
+                --deep: #0a3d28;
+                --pale: #e7f6ee;
+                --line: #8eae9a;
+                --fault: #6e2c28;
+                --focus: #0c6a42;
+                font-family: "Segoe UI", system-ui, sans-serif;
+                background: var(--paper);
+                color: var(--ink);
+                font-size: 1rem;
+                line-height: 1.4;
             }
+            * { box-sizing: border-box; }
+            ::selection { background: #b7e4cc; color: var(--ink); }
+            :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
             body {
                 margin: 0 auto;
-                max-width: 40rem;
-                padding: 2rem 1.25rem 4rem;
+                max-width: 38rem;
+                padding: 1.25rem 1rem 3rem;
+            }
+            header {
+                display: flex;
+                align-items: end;
+                justify-content: space-between;
+                gap: 1rem;
+                margin-bottom: 1.25rem;
             }
             h1 {
-                font-size: 1.8rem;
-                margin: 0 0 0.4rem;
+                margin: 0;
+                font-size: 1.75rem;
+                font-weight: 650;
+                letter-spacing: -0.03em;
+                line-height: 1;
             }
-            p {
-                line-height: 1.45;
+            label { display: grid; gap: 0.3rem; font-size: 0.92rem; }
+            input, select, button { font: inherit; color: inherit; }
+            input, select {
+                padding: 0.5rem 0.6rem;
+                border: 1px solid var(--line);
+                border-radius: 2px;
+                background: var(--ticket);
+                caret-color: var(--green);
             }
-            form,
-            section,
-            details {
+            input::placeholder { color: #3d5c4a; }
+            button { cursor: pointer; }
+            button:disabled { cursor: default; }
+            .network select { min-width: 9rem; }
+            .entry {
+                display: flex;
+                gap: 0.5rem;
+                margin-bottom: 1rem;
+            }
+            .entry.empty {
+                display: grid;
+                gap: 0.75rem;
+                margin-top: 0.5rem;
+            }
+            .choice, .text-button, .ghost, .danger-quiet {
+                border: 1px solid var(--ink);
+                background: var(--ticket);
+                border-radius: 2px;
+                padding: 0.55rem 0.7rem;
+            }
+            .entry.empty .choice {
+                display: grid;
+                grid-template-columns: 5.5rem 1fr;
+                align-items: stretch;
+                text-align: left;
+                padding: 0;
+                min-height: 5.5rem;
+                background:
+                    linear-gradient(90deg, transparent 5.5rem, transparent 5.5rem),
+                    var(--ticket);
+            }
+            .entry.empty .choice::before {
+                content: attr(data-stub);
+                display: grid;
+                place-items: center;
+                border-right: 1px dashed var(--line);
+                font-weight: 650;
+                letter-spacing: -0.03em;
+            }
+            .entry.empty .choice span { padding: 0.9rem 0.8rem; align-self: center; }
+            .entry.empty .choice.primary {
+                background: var(--deep);
+                color: var(--pale);
+                border-color: var(--deep);
+            }
+            .entry:not(.empty) .choice {
+                border: 0;
+                background: transparent;
+                padding: 0.2rem 0;
+                text-decoration: underline;
+                text-underline-offset: 0.18em;
+            }
+            #rail {
+                display: grid;
+                gap: 0.55rem;
+                margin: 0 0 1rem;
+                padding: 0;
+                list-style: none;
+            }
+            .ticket {
+                display: grid;
+                grid-template-columns: 5.5rem 1fr;
+                width: 100%;
+                padding: 0;
+                border: 0;
+                background: var(--ticket);
+                color: var(--ink);
+                text-align: left;
+                border-radius: 2px;
+                transition: transform 180ms ease-out, background 180ms ease-out, color 180ms ease-out;
+            }
+            .stub {
+                display: grid;
+                align-content: center;
+                gap: 0.1rem;
+                padding: 0.75rem 0.55rem;
+                border-right: 1px dashed var(--line);
+            }
+            .stub b {
+                font-size: 1.15rem;
+                font-variant-numeric: tabular-nums;
+                letter-spacing: -0.03em;
+                font-weight: 650;
+            }
+            .stub small { font-size: 0.75rem; }
+            .ticket-body {
+                display: flex;
+                justify-content: space-between;
+                gap: 0.75rem;
+                align-items: center;
+                padding: 0.75rem 0.8rem;
+            }
+            .parties { word-break: break-all; }
+            .status { font-weight: 650; color: var(--green); }
+            .ticket[aria-current="true"] {
+                background: var(--deep);
+                color: var(--pale);
+                transform: translateY(2px);
+            }
+            .ticket[aria-current="true"] .status { color: #b7e4cc; }
+            .ticket[aria-current="true"] .stub { border-right-color: #3e6b56; }
+            #composer, #contract, #advanced {
                 display: grid;
                 gap: 0.75rem;
             }
-            label {
-                display: grid;
-                gap: 0.25rem;
-                font-size: 0.95rem;
+            #composer, #contract {
+                background: var(--ticket);
+                padding: 1rem;
+                margin-bottom: 1rem;
             }
-            input,
-            select,
-            button {
-                font: inherit;
-                padding: 0.45rem 0.55rem;
-                border: 1px solid #c8c0b4;
-                border-radius: 6px;
-                background: white;
+            #contract.torn {
+                background:
+                    linear-gradient(var(--ticket), var(--ticket)) padding-box;
+                box-shadow: inset 0 1px 0 var(--fault);
             }
-            button {
-                cursor: pointer;
-                background: #1c1915;
-                color: #f4f1ea;
+            .fields { display: grid; gap: 0.7rem; margin: 0; padding: 0; border: 0; }
+            .actions, .row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+            #complete, #prepare, #load-escrow, #download-keys {
+                background: var(--green);
+                color: var(--pale);
+                border: 1px solid var(--green);
+                border-radius: 2px;
+                padding: 0.6rem 0.9rem;
             }
-            button:disabled {
-                cursor: default;
-                background: #8a8175;
+            #complete:disabled, #prepare:disabled, #load-escrow:disabled, #download-keys:disabled {
+                background: #c5ddd0;
+                border-color: #c5ddd0;
+                color: #1d3b2c;
             }
-            .row {
-                display: flex;
-                gap: 0.5rem;
-                flex-wrap: wrap;
+            #complete[aria-busy="true"] { transform: translateY(1px); }
+            #cancel, .ghost {
+                background: transparent;
+                color: var(--ink);
             }
-            .row button {
-                flex: 1;
+            #contract .ghost, #cancel, #copy, #unroll, #unilateral, #import-secrets, #restore-keys {
+                background: transparent;
+                border: 1px solid var(--ink);
+                border-radius: 2px;
+                padding: 0.55rem 0.75rem;
             }
-            code,
-            #log,
-            #hops {
+            #cancel:disabled, #unroll:disabled, #unilateral:disabled {
+                border-color: #8eae9a;
+                color: #3d5c4a;
+                background: transparent;
+            }
+            #address {
+                display: block;
+                margin: 0;
                 font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
                 font-size: 0.82rem;
                 word-break: break-all;
             }
-            #address {
-                display: block;
-                padding: 0.6rem;
-                background: white;
-                border-radius: 6px;
+            .teach {
+                margin: 0;
+                padding-top: 0.75rem;
+                border-top: 1px dashed var(--line);
             }
-            #log {
-                min-height: 4rem;
+            .teach p { margin: 0 0 0.6rem; max-width: 65ch; }
+            #load-status:empty, #exit-clock:empty, #fee-wallet:empty { display: none; }
+            #load-status, #exit-clock, #fee-wallet, .hint { color: #1e3a2c; max-width: 68ch; }
+            #contract.torn #load-status { color: var(--fault); }
+            details summary { cursor: pointer; font-weight: 650; }
+            #log, #hops {
+                margin: 0;
+                font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+                font-size: 0.78rem;
                 white-space: pre-wrap;
+                word-break: break-all;
             }
-            .hint {
-                color: #5c564e;
-                font-size: 0.9rem;
+            #log { min-height: 2rem; }
+            .visually-hidden {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                border: 0;
             }
-            button.small {
-                color: inherit;
-                background: white;
+            @media (prefers-reduced-motion: reduce) {
+                .ticket, #complete { transition: none; transform: none; }
+            }
+            @media (max-width: 32rem) {
+                .ticket, .entry.empty .choice { grid-template-columns: 4.6rem 1fr; }
+                .actions button, .row button { flex: 1; }
             }
         </style>
     </head>
     <body>
-        <h1>Escrow</h1>
-        <p>
-            Paste an Arkade.Money address for the buyer and the seller. This page
-            builds the escrow, and a simulated oracle here signs the release that
-            pays the seller.
-        </p>
-        <form>
-            <label>
+        <header>
+            <h1>Escrow</h1>
+            <label class="network">
                 Network
                 <select id="network"></select>
             </label>
-            <p class="hint">Wallet: <a id="wallet" target="_blank" rel="noreferrer"></a></p>
-            <label>
-                Buyer address
-                <input id="buyer" autocomplete="off" spellcheck="false" placeholder="tark1…" required />
-            </label>
-            <label>
-                Seller address
-                <input id="seller" autocomplete="off" spellcheck="false" placeholder="tark1…" required />
-            </label>
-            <label>
-                Amount (sats)
-                <input id="amount" type="number" min="1" step="1" required />
-            </label>
-            <label>
-                Refund after
-                <input id="timeout" type="datetime-local" required />
-            </label>
-            <p class="hint">
-                Refund pays the buyer once the emulator clock passes this time. A time
-                in the past can be spent now.
+        </header>
+
+        <div id="entry" class="entry empty">
+            <button id="show-load" class="choice primary" type="button" data-stub="Open">
+                <span>I already have an escrow address</span>
+            </button>
+            <button id="show-create" class="choice" type="button" data-stub="New">
+                <span>Create an escrow</span>
+            </button>
+        </div>
+
+        <p id="other-network" class="hint" hidden></p>
+        <ol id="rail" hidden></ol>
+
+        <form id="composer" hidden>
+            <fieldset class="fields" id="parameters">
+                <label>
+                    Buyer address
+                    <input id="buyer" autocomplete="off" spellcheck="false" placeholder="tark1…" required />
+                </label>
+                <label>
+                    Seller address
+                    <input id="seller" autocomplete="off" spellcheck="false" placeholder="tark1…" required />
+                </label>
+                <label>
+                    Amount (sats)
+                    <input id="amount" type="number" min="1" step="1" required />
+                </label>
+                <label>
+                    Refund after
+                    <input id="timeout" type="datetime-local" required />
+                </label>
+            </fieldset>
+            <p class="hint" id="create-hint">
+                Refund pays the buyer once the emulator clock passes this time.
             </p>
-            <label>
-                Unilateral delay (seconds)
-                <input id="exit" type="number" min="512" step="512" required />
-            </label>
-            <p class="hint">
-                This is a CSV. The seconds start when the funding transaction is
-                mined on Bitcoin. Unroll that transaction first. Public operators
-                require a multiple of 512, at least their unilateral exit delay.
-            </p>
-            <button id="prepare" type="submit">Create escrow</button>
+            <div id="load-fields" hidden>
+                <label>
+                    Escrow address
+                    <input id="load-address" autocomplete="off" spellcheck="false" placeholder="tark1…" />
+                </label>
+                <p class="hint">
+                    Those four fields are locked into the taproot. Paste the same
+                    buyer, seller, amount, and refund time that created the address.
+                    If you saved the file from that browser, restore it under Advanced
+                    and the fields fill in.
+                </p>
+                <div class="actions">
+                    <button id="load-escrow" type="button">Open this escrow</button>
+                </div>
+            </div>
+            <div id="create-fields" class="actions">
+                <button id="prepare" type="submit">Create escrow</button>
+            </div>
+            <button id="composer-back" class="text-button" type="button">Back</button>
+            <p id="wallet-line" class="hint">Wallet: <a id="wallet" target="_blank" rel="noreferrer"></a></p>
         </form>
 
-        <section>
-            <label>
-                Escrow address
-                <input id="load-address" autocomplete="off" spellcheck="false" placeholder="tark1…" />
-            </label>
-            <button id="load-escrow" type="button">Load escrow</button>
-            <p id="load-status" class="hint"></p>
-            <p class="hint">
-                Load compiles the contract artifact with the buyer and seller
-                addresses, amount, refund time, exit delay, and the keys on this
-                page. That taproot has to equal the pasted address. A saved record
-                fills the fields. If it does not match, the indexer coins are still
-                listed and the compiled address is shown.
-            </p>
-        </section>
-
         <section id="contract" hidden>
-            <p>Send the amount from Arkade.Money to this address.</p>
-            <code id="address"></code>
-            <button id="copy" class="small" type="button">Copy address</button>
             <p id="balance"></p>
-            <label>
+            <code id="address"></code>
+            <div class="actions">
+                <button id="copy" type="button">Copy address</button>
+                <button id="complete" type="button" disabled>Release</button>
+                <button id="cancel" type="button" disabled>Refund</button>
+            </div>
+            <div id="backup" class="teach" hidden>
+                <p>
+                    Save this file before you leave. It holds the parameters and the
+                    oracle key. Another browser can see the coins, and it cannot
+                    release or refund without the file.
+                </p>
+                <button id="download-keys" type="button">Save a copy</button>
+            </div>
+            <p id="load-status"></p>
+            <label id="coin-label">
                 Coin
                 <select id="coin"></select>
             </label>
-            <div class="row">
-                <button id="complete" type="button" disabled>Unlock to seller</button>
-                <button id="cancel" type="button" disabled>Refund buyer</button>
-                <button id="unilateral" type="button" disabled>Unilateral exit</button>
-                <button id="unroll" type="button" disabled>Unroll to Bitcoin</button>
-            </div>
-            <p class="hint">complete · cancel · unroll, then the 2-of-2 exit. Each spend takes one coin.</p>
-            <p id="exit-clock" class="hint"></p>
-            <p id="fee-wallet" class="hint"></p>
+            <details id="advanced">
+                <summary>Advanced</summary>
+                <label>
+                    Unilateral delay (seconds)
+                    <input id="exit" type="number" min="512" step="512" required />
+                </label>
+                <p class="hint">
+                    A multiple of 512, at least this operator’s exit delay. The seconds
+                    start when the funding transaction is mined. Unroll that
+                    transaction first.
+                </p>
+                <div class="row">
+                    <button id="unroll" type="button" disabled>Unroll to Bitcoin</button>
+                    <button id="unilateral" type="button" disabled>Unilateral exit</button>
+                </div>
+                <p id="exit-clock" class="hint"></p>
+                <p id="fee-wallet" class="hint"></p>
+                <p id="oracle"></p>
+                <p id="keys"></p>
+                <label>
+                    Buyer key
+                    <input id="buyer-secret" type="password" autocomplete="off" spellcheck="false" placeholder="nsec, hex, or 12 words" />
+                </label>
+                <label>
+                    Seller key
+                    <input id="seller-secret" type="password" autocomplete="off" spellcheck="false" placeholder="nsec, hex, or 12 words" />
+                </label>
+                <button id="import-secrets" type="button">Use these keys</button>
+                <div class="row">
+                    <button id="download-keys-advanced" type="button">Save a copy</button>
+                    <button id="restore-keys" type="button">Restore a file</button>
+                    <input id="restore-file" type="file" accept="application/json,.json" hidden />
+                </div>
+                <p class="hint">
+                    A seller mnemonic is the 12 or 24 words from Arkade.Money. On
+                    mutinynet those words use the testnet BIP86 key. An nsec or
+                    64-character hex key works too. Either field can be left blank.
+                </p>
+                <pre id="hops"></pre>
+                <div id="log"></div>
+            </details>
         </section>
-
-        <details>
-            <summary>Oracle and exit keys</summary>
-            <p id="oracle"></p>
-            <p id="keys"></p>
-            <label>
-                Buyer key
-                <input id="buyer-secret" type="password" autocomplete="off" spellcheck="false" placeholder="nsec, hex, or 12 words" />
-            </label>
-            <label>
-                Seller key
-                <input id="seller-secret" type="password" autocomplete="off" spellcheck="false" placeholder="nsec, hex, or 12 words" />
-            </label>
-            <button id="import-secrets" class="small" type="button">Use these keys</button>
-            <div class="row">
-                <button id="download-keys" class="small" type="button">Download keys</button>
-                <button id="restore-keys" class="small" type="button">Restore keys</button>
-                <input id="restore-file" type="file" accept="application/json,.json" hidden />
-            </div>
-            <p class="hint">
-                The pasted addresses are where an off-chain payout goes. A seller
-                wallet mnemonic is the 12 or 24 words from Arkade.Money. On mutinynet
-                those words use the testnet BIP86 key. An nsec or 64-character hex
-                key works too. Either field can be left blank.
-            </p>
-            <pre id="hops"></pre>
-        </details>
-        <div id="log"></div>
         <script type="module" src="./app.js"></script>
     </body>
 </html>
