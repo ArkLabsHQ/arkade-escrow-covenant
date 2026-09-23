@@ -4,6 +4,7 @@ import { arkade, EsploraProvider, OnchainWallet, type VirtualCoin } from "@arkad
 
 import {
     bitcoinMinedAt,
+    coinsForAddress,
     DEMO_NETWORKS,
     describeExitClock,
     exitAnchor,
@@ -46,6 +47,7 @@ const exitInput = required<HTMLInputElement>("#exit");
 const prepareButton = required<HTMLButtonElement>("#prepare");
 const loadAddressInput = required<HTMLInputElement>("#load-address");
 const loadEscrowButton = required<HTMLButtonElement>("#load-escrow");
+const loadStatus = required<HTMLElement>("#load-status");
 const contractSection = required<HTMLElement>("#contract");
 const addressCode = required<HTMLElement>("#address");
 const copyButton = required<HTMLButtonElement>("#copy");
@@ -188,19 +190,38 @@ async function createEscrow(expectedAddress?: string): Promise<void> {
 
 async function loadByAddress(address: string): Promise<void> {
     const trimmed = address.trim();
+    if (!trimmed) throw new Error("paste an escrow address");
     const found = readEscrows().find((item) => item.address === trimmed);
-    if (!found) {
-        throw new Error("no saved escrow for that address. Restore the key file from the browser that created it.");
+    if (found) {
+        networkSelect.value = found.network;
+        updateWalletLink();
+        buyerInput.value = found.buyer;
+        sellerInput.value = found.seller;
+        amountInput.value = found.amount;
+        timeoutInput.value = found.timeout;
+        exitInput.value = found.exit;
+        await createEscrow(found.address);
+        loadStatus.textContent = `Resumed ${found.address}.`;
+        note(`resumed ${found.address}`);
+        return;
     }
-    networkSelect.value = found.network;
-    updateWalletLink();
-    buyerInput.value = found.buyer;
-    sellerInput.value = found.seller;
-    amountInput.value = found.amount;
-    timeoutInput.value = found.timeout;
-    exitInput.value = found.exit;
-    await createEscrow(found.address);
-    note(`resumed ${found.address}`);
+    const watched = await coinsForAddress(selectedNetwork(), trimmed);
+    prepared = undefined;
+    fingerprint = "";
+    coins = watched;
+    addressCode.textContent = trimmed;
+    contractSection.hidden = false;
+    fillCoinSelect();
+    balanceLine.textContent = describeCoins();
+    exitClock.textContent = "";
+    hopsLine.textContent = "";
+    const unrolled = watched.some((coin) => coin.isUnrolled);
+    const line =
+        watched.length === 0
+            ? "The indexer has no unspent coins at that address."
+            : `${describeCoins()} ${unrolled ? "The funding transaction is on Bitcoin." : "It is still off chain."} This browser does not have the contract that built the address, so the spend buttons stay off until you restore the key file that created it.`;
+    loadStatus.textContent = line;
+    note(line);
 }
 
 async function unlock(): Promise<void> {
@@ -236,10 +257,10 @@ async function unroll(): Promise<void> {
 async function importSecrets(): Promise<void> {
     const buyerText = buyerSecret.value.trim();
     const sellerText = sellerSecret.value.trim();
-    if (!buyerText || !sellerText) throw new Error("paste the buyer nsec and the seller nsec");
-    const buyer = secretToKey(buyerText);
-    const seller = secretToKey(sellerText);
-    keys = { buyer, seller, oracle: keys.oracle };
+    if (!buyerText && !sellerText) throw new Error("paste a buyer or seller key");
+    const mainnet = selectedNetwork().name === "bitcoin";
+    if (buyerText) keys = { ...keys, buyer: secretToKey(buyerText, { mainnet }) };
+    if (sellerText) keys = { ...keys, seller: secretToKey(sellerText, { mainnet }) };
     saveStoredKeys(exportStoredKeys(keys));
     buyerSecret.value = "";
     sellerSecret.value = "";
@@ -249,7 +270,8 @@ async function importSecrets(): Promise<void> {
     contractSection.hidden = true;
     hopsLine.textContent = "";
     await showKeys();
-    note("replaced the buyer and seller keys. Create the escrow again.");
+    const which = buyerText && sellerText ? "buyer and seller keys" : buyerText ? "buyer key" : "seller key";
+    note(`replaced the ${which}`);
 }
 
 async function exit(): Promise<void> {
@@ -281,9 +303,7 @@ function payouts(current: PreparedEscrow): { buyer: Uint8Array; seller: Uint8Arr
     return { buyer: buyer.pkScript, seller: seller.pkScript };
 }
 
-async function refreshCoins(announce: boolean): Promise<void> {
-    if (!prepared) return;
-    coins = await prepared.contract.getUtxos();
+function fillCoinSelect(): void {
     const previous = coinSelect.value;
     coinSelect.replaceChildren(
         ...coins.map((coin) => {
@@ -294,6 +314,12 @@ async function refreshCoins(announce: boolean): Promise<void> {
         }),
     );
     if (coins.some((coin) => `${coin.txid}:${coin.vout}` === previous)) coinSelect.value = previous;
+}
+
+async function refreshCoins(announce: boolean): Promise<void> {
+    if (!prepared) return;
+    coins = await prepared.contract.getUtxos();
+    fillCoinSelect();
     const total = coins.reduce((sum, coin) => sum + coin.value, 0);
     balanceLine.textContent = describeCoins();
     if (announce && coins.length > 0) note(`found ${total} sats`);

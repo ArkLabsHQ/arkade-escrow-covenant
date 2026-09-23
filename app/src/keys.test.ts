@@ -21,6 +21,19 @@ describe("storedKeysFromText", () => {
         assert.equal(stored.seller, hex("cd"));
     });
 
+    it("derives the mutinynet BIP86 key from a 12-word mnemonic", async () => {
+        const phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        const key = secretToKey(phrase);
+        const mainnet = secretToKey(phrase, { mainnet: true });
+        assert.equal((await key.xOnlyPublicKey()).length, 32);
+        assert.notEqual(key.toHex(), mainnet.toHex());
+        assert.equal(secretToKey(phrase).toHex(), key.toHex());
+    });
+
+    it("rejects words that are not a mnemonic", () => {
+        assert.throws(() => secretToKey("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon"), /not a valid BIP39 phrase/);
+    });
+
     it("reads an nsec back into the same key", async () => {
         const raw = new Uint8Array(32).fill(7);
         const nsec = bech32.encode("nsec", bech32.toWords(raw));

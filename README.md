@@ -32,7 +32,7 @@ pnpm test
 pnpm dev
 ```
 
-The page is http://127.0.0.1:4173. `pnpm build` writes `dist/`. Creating an escrow saves its address and parameters in the browser, and the key download includes that list. A later session keeps the oracle key. Paste the escrow address, or reload, and the page rebuilds the contract with the stored oracle.
+The page is http://127.0.0.1:4173. `pnpm build` writes `dist/`. Creating an escrow saves its address and parameters in the browser, and the key download includes that list. A later session keeps the oracle key. Paste the escrow address, or reload, and the page rebuilds the contract with the stored oracle. An address from another browser still lists its coins from the indexer. Buyer and seller keys accept an nsec, hex, or the 12 or 24 words from an Arkade wallet.
 
 
 ## GitHub Pages
