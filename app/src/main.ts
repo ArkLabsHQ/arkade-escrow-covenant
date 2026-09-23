@@ -48,7 +48,7 @@ const prepareButton = required<HTMLButtonElement>("#prepare");
 const loadAddressInput = required<HTMLInputElement>("#load-address");
 const loadEscrowButton = required<HTMLButtonElement>("#load-escrow");
 const loadStatus = required<HTMLElement>("#load-status");
-const contractSection = required<HTMLElement>("#contract");
+const contractSection = required<HTMLDialogElement>("#contract");
 const addressCode = required<HTMLElement>("#address");
 const copyButton = required<HTMLButtonElement>("#copy");
 const balanceLine = required<HTMLElement>("#balance");
@@ -73,7 +73,13 @@ const log = required<HTMLElement>("#log");
 const entry = required<HTMLElement>("#entry");
 const rail = required<HTMLOListElement>("#rail");
 const otherNetwork = required<HTMLElement>("#other-network");
-const composer = required<HTMLElement>("#composer");
+const composer = required<HTMLDialogElement>("#composer");
+const composerTitle = required<HTMLElement>("#composer-title");
+const customAmountField = required<HTMLElement>("#custom-amount-field");
+const customAmountButton = required<HTMLButtonElement>("#custom-amount");
+const closeContractButton = required<HTMLButtonElement>("#close-contract");
+const amountButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-amount]")];
+const AMOUNT_PRESETS = [1_000, 5_000, 10_000, 50_000];
 const loadFields = required<HTMLElement>("#load-fields");
 const createFields = required<HTMLElement>("#create-fields");
 const showLoadButton = required<HTMLButtonElement>("#show-load");
@@ -125,11 +131,8 @@ networkSelect.addEventListener("change", () => {
 });
 void (async () => {
     await raiseExitToOperator();
+    applyAmountChoice(amountInput.value);
     void refreshRailStatuses();
-    const last = lastEscrowAddress();
-    if (last && readEscrows().some((item) => item.address === last)) {
-        await run("resume", () => loadByAddress(last));
-    }
 })();
 for (const input of [buyerInput, sellerInput, amountInput, timeoutInput, exitInput]) {
     input.addEventListener("input", markStale);
@@ -147,6 +150,20 @@ loadEscrowButton.addEventListener("click", () => void run("load", () => loadByAd
 showLoadButton.addEventListener("click", () => openComposer("load"));
 showCreateButton.addEventListener("click", () => openComposer("create"));
 composerBack.addEventListener("click", closeComposer);
+closeContractButton.addEventListener("click", hideContract);
+composer.addEventListener("close", () => syncEntry());
+contractSection.addEventListener("close", () => paintRail());
+for (const button of amountButtons) {
+    button.addEventListener("click", () => {
+        amountInput.value = button.dataset.amount ?? amountInput.value;
+        applyAmountChoice(amountInput.value);
+        amountInput.dispatchEvent(new Event("input"));
+    });
+}
+customAmountButton.addEventListener("click", () => {
+    applyAmountChoice("custom");
+    amountInput.focus();
+});
 copyButton.addEventListener("click", () => {
     void navigator.clipboard.writeText(addressCode.textContent ?? "");
     note("copied the funding address");
@@ -187,7 +204,7 @@ async function createEscrow(expectedAddress?: string): Promise<void> {
     });
     fingerprint = currentFingerprint();
     addressCode.textContent = prepared.contract.address;
-    contractSection.hidden = false;
+    showContract();
     note(
         `escrow ${prepared.contract.address} · emulator ${prepared.emulatorVersion || "unknown"} · oracle signs "${RELEASE_LABEL}"`,
     );
@@ -199,7 +216,7 @@ async function createEscrow(expectedAddress?: string): Promise<void> {
         prepared = undefined;
         coins = [];
         fingerprint = "";
-        contractSection.hidden = true;
+        hideContract();
         contractSection.classList.remove("torn");
         throw new RebuildMismatch(rebuilt, expectedAddress);
     }
@@ -255,7 +272,7 @@ async function showUnmatched(address: string, rebuilt: string | undefined, reaso
     fingerprint = "";
     coins = watched;
     addressCode.textContent = address;
-    contractSection.hidden = false;
+    showContract();
     fillCoinSelect();
     balanceLine.textContent = describeCoins();
     exitClock.textContent = "";
@@ -321,7 +338,7 @@ async function importSecrets(): Promise<void> {
     prepared = undefined;
     coins = [];
     fingerprint = "";
-    contractSection.hidden = true;
+    hideContract();
     hopsLine.textContent = "";
     await showKeys();
     const which = buyerText && sellerText ? "buyer and seller keys" : buyerText ? "buyer key" : "seller key";
@@ -438,7 +455,7 @@ async function restoreKeys(file: File): Promise<void> {
     prepared = undefined;
     coins = [];
     fingerprint = "";
-    contractSection.hidden = true;
+    hideContract();
     hopsLine.textContent = "";
     await showKeys();
     closeComposer();
@@ -627,24 +644,41 @@ class RebuildMismatch extends Error {
     }
 }
 
+function showContract(): void {
+    if (!contractSection.open) contractSection.showModal();
+}
+
+function hideContract(): void {
+    if (contractSection.open) contractSection.close();
+}
+
 function openComposer(mode: "create" | "load"): void {
-    composer.hidden = false;
     loadFields.hidden = mode !== "load";
     createFields.hidden = mode !== "create";
-    entry.hidden = true;
+    composerTitle.textContent = mode === "load" ? "Load an escrow" : "New escrow";
+    applyAmountChoice(amountInput.value);
+    if (!composer.open) composer.showModal();
     (mode === "load" ? loadAddressInput : buyerInput).focus();
 }
 
 function closeComposer(): void {
-    composer.hidden = true;
+    if (composer.open) composer.close();
     syncEntry();
+}
+
+function applyAmountChoice(value: string): void {
+    const custom = !AMOUNT_PRESETS.some((amount) => String(amount) === value);
+    customAmountField.hidden = !custom;
+    customAmountButton.setAttribute("aria-pressed", String(custom));
+    for (const button of amountButtons) {
+        button.setAttribute("aria-pressed", String(button.dataset.amount === value));
+    }
 }
 
 function syncEntry(): void {
     const onNetwork = readEscrows().filter((item) => item.network === networkSelect.value);
     const elsewhere = readEscrows().length - onNetwork.length;
     entry.classList.toggle("empty", readEscrows().length === 0);
-    entry.hidden = !composer.hidden;
     otherNetwork.hidden = elsewhere === 0;
     otherNetwork.textContent =
         elsewhere === 0
@@ -655,7 +689,7 @@ function syncEntry(): void {
 
 function paintRail(): void {
     const list = readEscrows().filter((item) => item.network === networkSelect.value);
-    const open = !contractSection.hidden ? addressCode.textContent?.trim() : "";
+    const open = contractSection.open ? addressCode.textContent?.trim() : "";
     rail.replaceChildren(
         ...list.map((escrow) => {
             const item = document.createElement("li");
@@ -737,7 +771,7 @@ function markCovered(addresses: string[]): void {
 
 function syncBackup(): void {
     const address = addressCode.textContent?.trim() ?? "";
-    backup.hidden = contractSection.hidden || !prepared || !address || covered().includes(address);
+    backup.hidden = !contractSection.open || !prepared || !address || covered().includes(address);
 }
 
 function note(message: string): void {

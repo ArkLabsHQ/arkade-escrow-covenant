@@ -26,30 +26,37 @@
             :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
             body {
                 margin: 0 auto;
-                max-width: 38rem;
+                max-width: 56rem;
                 padding: 1.25rem 1rem 3rem;
             }
-            header {
+            header, .dialog-head {
                 display: flex;
                 align-items: end;
                 justify-content: space-between;
                 gap: 1rem;
-                margin-bottom: 1.25rem;
             }
-            h1 {
+            header { margin-bottom: 1.25rem; }
+            h1, h2 {
                 margin: 0;
-                font-size: 1.75rem;
                 font-weight: 650;
                 letter-spacing: -0.03em;
                 line-height: 1;
             }
-            label { display: grid; gap: 0.3rem; font-size: 0.92rem; }
+            h1 { font-size: 1.75rem; }
+            h2 { font-size: 1.35rem; }
+            label, fieldset { display: grid; gap: 0.3rem; font-size: 0.92rem; }
+            legend { font-weight: 650; padding: 0; }
+            fieldset {
+                margin: 0;
+                padding: 0.8rem;
+                border: 1px dashed var(--line);
+            }
             input, select, button { font: inherit; color: inherit; }
             input, select {
                 padding: 0.5rem 0.6rem;
                 border: 1px solid var(--line);
                 border-radius: 2px;
-                background: var(--ticket);
+                background: white;
                 caret-color: var(--green);
             }
             input::placeholder { color: #3d5c4a; }
@@ -63,8 +70,9 @@
             }
             .entry.empty {
                 display: grid;
+                grid-template-columns: 1fr 1fr;
                 gap: 0.75rem;
-                margin-top: 0.5rem;
+                margin-top: 1.5rem;
             }
             .choice, .text-button {
                 border: 1px solid var(--ink);
@@ -72,74 +80,52 @@
                 border-radius: 2px;
                 padding: 0.55rem 0.7rem;
             }
-            .entry.empty .choice {
-                display: grid;
-                grid-template-columns: 5.5rem 1fr;
-                align-items: stretch;
-                text-align: left;
-                padding: 0;
-                min-height: 5.5rem;
-                background: var(--ticket);
-            }
-            .entry.empty .choice::before {
-                content: attr(data-stub);
-                display: grid;
-                place-items: center;
-                border-right: 1px dashed var(--line);
-                font-weight: 650;
-                letter-spacing: -0.03em;
-            }
-            .entry.empty .choice span { padding: 0.9rem 0.8rem; align-self: center; }
-            .entry.empty .choice.primary {
-                background: var(--deep);
+            .choice.primary, #prepare, #load-escrow, #complete, #download-keys {
+                background: var(--green);
                 color: var(--pale);
-                border-color: var(--deep);
+                border-color: var(--green);
             }
-            .entry:not(.empty) .choice {
-                border: 0;
-                background: transparent;
-                padding: 0.2rem 0;
-                text-decoration: underline;
-                text-underline-offset: 0.18em;
+            .entry.empty .choice {
+                min-height: 7rem;
+                text-align: left;
+                padding: 1rem;
+                font-size: 1.15rem;
+                font-weight: 650;
             }
             #rail {
                 display: grid;
-                gap: 0.55rem;
-                margin: 0 0 1rem;
+                grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+                gap: 0.75rem;
+                margin: 0;
                 padding: 0;
                 list-style: none;
             }
             .ticket {
                 display: grid;
-                grid-template-columns: 5.5rem 1fr;
+                align-content: space-between;
+                gap: 0.8rem;
+                min-height: 8.5rem;
                 width: 100%;
-                padding: 0;
+                padding: 0.9rem;
                 border: 0;
                 background: var(--ticket);
                 color: var(--ink);
                 text-align: left;
                 border-radius: 2px;
             }
-            .stub {
-                display: grid;
-                align-content: center;
-                gap: 0.1rem;
-                padding: 0.75rem 0.55rem;
-                border-right: 1px dashed var(--line);
-            }
+            .ticket:hover { background: var(--pale); }
             .stub b {
-                font-size: 1.15rem;
+                font-size: 1.6rem;
                 font-variant-numeric: tabular-nums;
                 letter-spacing: -0.03em;
                 font-weight: 650;
             }
-            .stub small { font-size: 0.75rem; }
+            .stub small { display: block; font-size: 0.75rem; }
             .ticket-body {
                 display: flex;
                 justify-content: space-between;
                 gap: 0.75rem;
-                align-items: center;
-                padding: 0.75rem 0.8rem;
+                align-items: end;
             }
             .parties { word-break: break-all; }
             .status { font-weight: 650; color: var(--green); }
@@ -148,32 +134,38 @@
                 color: var(--pale);
             }
             .ticket[aria-current="true"] .status { color: #b7e4cc; }
-            .ticket[aria-current="true"] .stub { border-right-color: #3e6b56; }
-            #composer, #contract, #advanced {
-                display: grid;
-                gap: 0.75rem;
-            }
-            #composer, #contract {
-                background: var(--ticket);
-                padding: 1rem;
-                margin-bottom: 1rem;
-            }
-            #contract.torn { box-shadow: inset 0 1px 0 var(--fault); }
-            .fields { display: grid; gap: 0.7rem; margin: 0; padding: 0; border: 0; }
-            .actions, .row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-            #complete, #prepare, #load-escrow, #download-keys {
-                background: var(--green);
-                color: var(--pale);
-                border: 1px solid var(--green);
+            dialog {
+                width: min(32rem, calc(100vw - 2rem));
+                border: 0;
                 border-radius: 2px;
-                padding: 0.6rem 0.9rem;
+                padding: 1rem;
+                background: var(--ticket);
+                color: var(--ink);
             }
+            dialog::backdrop { background: rgba(10, 61, 40, 0.46); }
+            dialog[open], dialog[open] > form, #advanced { display: grid; gap: 0.75rem; }
+            #contract.torn { box-shadow: inset 0 2px 0 var(--fault); }
+            .fields { display: grid; gap: 0.7rem; margin: 0; padding: 0; border: 0; }
+            .amounts { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+            .amounts button {
+                border: 1px solid var(--ink);
+                background: white;
+                border-radius: 2px;
+                padding: 0.45rem 0.65rem;
+                font-variant-numeric: tabular-nums;
+            }
+            .amounts button[aria-pressed="true"] {
+                background: var(--deep);
+                color: var(--pale);
+                border-color: var(--deep);
+            }
+            .actions, .row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
             #complete:disabled, #prepare:disabled, #load-escrow:disabled, #download-keys:disabled {
                 background: #c5ddd0;
                 border-color: #c5ddd0;
                 color: #1d3b2c;
             }
-            #cancel, #copy, #unroll, #unilateral, #import-secrets, #restore-keys {
+            #cancel, #copy, #unroll, #unilateral, #import-secrets, #restore-keys, .text-button {
                 background: transparent;
                 border: 1px solid var(--ink);
                 border-radius: 2px;
@@ -182,7 +174,6 @@
             #cancel:disabled, #unroll:disabled, #unilateral:disabled {
                 border-color: #8eae9a;
                 color: #3d5c4a;
-                background: transparent;
             }
             #address {
                 display: block;
@@ -198,7 +189,7 @@
             }
             .teach p { margin: 0 0 0.6rem; max-width: 65ch; }
             #load-status:empty, #exit-clock:empty, #fee-wallet:empty { display: none; }
-            #load-status, #exit-clock, #fee-wallet, .hint { color: #1e3a2c; max-width: 68ch; }
+            #load-status, #exit-clock, #fee-wallet, .hint { color: #1e3a2c; max-width: 68ch; margin: 0; }
             #contract.torn #load-status { color: var(--fault); }
             details summary { cursor: pointer; font-weight: 650; }
             #log, #hops {
@@ -209,8 +200,8 @@
                 word-break: break-all;
             }
             #log { min-height: 2rem; }
-            @media (max-width: 32rem) {
-                .ticket, .entry.empty .choice { grid-template-columns: 4.6rem 1fr; }
+            @media (max-width: 40rem) {
+                .entry.empty { grid-template-columns: 1fr; }
                 .actions button, .row button { flex: 1; }
             }
         </style>
@@ -225,60 +216,81 @@
         </header>
 
         <div id="entry" class="entry empty">
-            <button id="show-load" class="choice primary" type="button" data-stub="Open">
-                <span>I already have an escrow address</span>
-            </button>
-            <button id="show-create" class="choice" type="button" data-stub="New">
-                <span>Create an escrow</span>
-            </button>
+            <button id="show-create" class="choice primary" type="button">New escrow</button>
+            <button id="show-load" class="choice" type="button">Load an address</button>
         </div>
-
         <p id="other-network" class="hint" hidden></p>
         <ol id="rail" hidden></ol>
 
-        <form id="composer" hidden>
-            <fieldset class="fields" id="parameters">
-                <label>
-                    Buyer address
-                    <input id="buyer" autocomplete="off" spellcheck="false" placeholder="tark1…" required />
-                </label>
-                <label>
-                    Seller address
-                    <input id="seller" autocomplete="off" spellcheck="false" placeholder="tark1…" required />
-                </label>
-                <label>
-                    Amount (sats)
-                    <input id="amount" type="number" min="1" step="1" required />
-                </label>
-                <label>
-                    Refund after
-                    <input id="timeout" type="datetime-local" required />
-                </label>
-            </fieldset>
-            <div id="load-fields" hidden>
-                <label>
-                    Escrow address
-                    <input id="load-address" autocomplete="off" spellcheck="false" placeholder="tark1…" />
-                </label>
-                <p class="hint">
-                    Those four fields are locked into the taproot. Paste the same
-                    buyer, seller, amount, and refund time that created the address.
-                    If you saved the file from that browser, restore it under Advanced
-                    and the fields fill in.
-                </p>
-                <div class="actions">
-                    <button id="load-escrow" type="button">Open this escrow</button>
+        <dialog id="composer">
+            <form>
+                <div class="dialog-head">
+                    <h2 id="composer-title">New escrow</h2>
+                    <button id="composer-back" class="text-button" type="button">Close</button>
                 </div>
-            </div>
-            <div id="create-fields">
-                <p class="hint">Refund pays the buyer once the emulator clock passes this time.</p>
-                <button id="prepare" type="submit">Create escrow</button>
-            </div>
-            <button id="composer-back" class="text-button" type="button">Back</button>
-            <p id="wallet-line" class="hint">Wallet: <a id="wallet" target="_blank" rel="noreferrer"></a></p>
-        </form>
+                <div class="fields" id="parameters">
+                    <fieldset>
+                        <legend>Buyer</legend>
+                        <p class="hint">This address pays the escrow. A refund returns here.</p>
+                        <label>
+                            Arkade address
+                            <input id="buyer" autocomplete="off" spellcheck="false" placeholder="tark1…" required />
+                        </label>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Seller</legend>
+                        <p class="hint">Release pays this address.</p>
+                        <label>
+                            Arkade address
+                            <input id="seller" autocomplete="off" spellcheck="false" placeholder="tark1…" required />
+                        </label>
+                    </fieldset>
+                    <div>
+                        <span id="amount-label">Amount</span>
+                        <div class="amounts" role="group" aria-labelledby="amount-label">
+                            <button type="button" data-amount="1000">1,000</button>
+                            <button type="button" data-amount="5000">5,000</button>
+                            <button type="button" data-amount="10000" aria-pressed="true">10,000</button>
+                            <button type="button" data-amount="50000">50,000</button>
+                            <button id="custom-amount" type="button">Custom</button>
+                        </div>
+                    </div>
+                    <label id="custom-amount-field" hidden>
+                        Custom amount (sats)
+                        <input id="amount" type="number" min="1" step="1" required />
+                    </label>
+                    <label>
+                        Refund after
+                        <input id="timeout" type="datetime-local" required />
+                    </label>
+                    <p class="hint">Refund pays the buyer once the emulator clock passes this time.</p>
+                </div>
+                <div id="load-fields" hidden>
+                    <label>
+                        Escrow address
+                        <input id="load-address" autocomplete="off" spellcheck="false" placeholder="tark1…" />
+                    </label>
+                    <p class="hint">
+                        Buyer, seller, amount, and refund time are locked into the
+                        address. Use the same values, or restore a saved file under
+                        Advanced after it opens.
+                    </p>
+                    <div class="actions">
+                        <button id="load-escrow" type="button">Open this escrow</button>
+                    </div>
+                </div>
+                <div id="create-fields" class="actions">
+                    <button id="prepare" type="submit">Create escrow</button>
+                </div>
+                <p class="hint">Wallet: <a id="wallet" target="_blank" rel="noreferrer"></a></p>
+            </form>
+        </dialog>
 
-        <section id="contract" hidden>
+        <dialog id="contract">
+            <div class="dialog-head">
+                <h2>Escrow</h2>
+                <button id="close-contract" class="text-button" type="button">Close</button>
+            </div>
             <p id="balance"></p>
             <code id="address"></code>
             <div class="actions">
@@ -340,7 +352,7 @@
                 <pre id="hops"></pre>
                 <div id="log"></div>
             </details>
-        </section>
+        </dialog>
         <script type="module" src="./app.js"></script>
     </body>
 </html>
