@@ -15,7 +15,6 @@
                 --pale: #e7f6ee;
                 --line: #8eae9a;
                 --fault: #6e2c28;
-                --focus: #0c6a42;
                 font-family: "Segoe UI", system-ui, sans-serif;
                 background: var(--paper);
                 color: var(--ink);
@@ -24,7 +23,7 @@
             }
             * { box-sizing: border-box; }
             ::selection { background: #b7e4cc; color: var(--ink); }
-            :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+            :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
             body {
                 margin: 0 auto;
                 max-width: 38rem;
@@ -67,7 +66,7 @@
                 gap: 0.75rem;
                 margin-top: 0.5rem;
             }
-            .choice, .text-button, .ghost, .danger-quiet {
+            .choice, .text-button {
                 border: 1px solid var(--ink);
                 background: var(--ticket);
                 border-radius: 2px;
@@ -80,9 +79,7 @@
                 text-align: left;
                 padding: 0;
                 min-height: 5.5rem;
-                background:
-                    linear-gradient(90deg, transparent 5.5rem, transparent 5.5rem),
-                    var(--ticket);
+                background: var(--ticket);
             }
             .entry.empty .choice::before {
                 content: attr(data-stub);
@@ -122,7 +119,6 @@
                 color: var(--ink);
                 text-align: left;
                 border-radius: 2px;
-                transition: transform 180ms ease-out, background 180ms ease-out, color 180ms ease-out;
             }
             .stub {
                 display: grid;
@@ -150,7 +146,6 @@
             .ticket[aria-current="true"] {
                 background: var(--deep);
                 color: var(--pale);
-                transform: translateY(2px);
             }
             .ticket[aria-current="true"] .status { color: #b7e4cc; }
             .ticket[aria-current="true"] .stub { border-right-color: #3e6b56; }
@@ -163,11 +158,7 @@
                 padding: 1rem;
                 margin-bottom: 1rem;
             }
-            #contract.torn {
-                background:
-                    linear-gradient(var(--ticket), var(--ticket)) padding-box;
-                box-shadow: inset 0 1px 0 var(--fault);
-            }
+            #contract.torn { box-shadow: inset 0 1px 0 var(--fault); }
             .fields { display: grid; gap: 0.7rem; margin: 0; padding: 0; border: 0; }
             .actions, .row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
             #complete, #prepare, #load-escrow, #download-keys {
@@ -182,12 +173,7 @@
                 border-color: #c5ddd0;
                 color: #1d3b2c;
             }
-            #complete[aria-busy="true"] { transform: translateY(1px); }
-            #cancel, .ghost {
-                background: transparent;
-                color: var(--ink);
-            }
-            #contract .ghost, #cancel, #copy, #unroll, #unilateral, #import-secrets, #restore-keys {
+            #cancel, #copy, #unroll, #unilateral, #import-secrets, #restore-keys {
                 background: transparent;
                 border: 1px solid var(--ink);
                 border-radius: 2px;
@@ -223,19 +209,6 @@
                 word-break: break-all;
             }
             #log { min-height: 2rem; }
-            .visually-hidden {
-                position: absolute;
-                width: 1px;
-                height: 1px;
-                padding: 0;
-                margin: -1px;
-                overflow: hidden;
-                clip: rect(0, 0, 0, 0);
-                border: 0;
-            }
-            @media (prefers-reduced-motion: reduce) {
-                .ticket, #complete { transition: none; transform: none; }
-            }
             @media (max-width: 32rem) {
                 .ticket, .entry.empty .choice { grid-template-columns: 4.6rem 1fr; }
                 .actions button, .row button { flex: 1; }
@@ -282,9 +255,6 @@
                     <input id="timeout" type="datetime-local" required />
                 </label>
             </fieldset>
-            <p class="hint" id="create-hint">
-                Refund pays the buyer once the emulator clock passes this time.
-            </p>
             <div id="load-fields" hidden>
                 <label>
                     Escrow address
@@ -300,7 +270,8 @@
                     <button id="load-escrow" type="button">Open this escrow</button>
                 </div>
             </div>
-            <div id="create-fields" class="actions">
+            <div id="create-fields">
+                <p class="hint">Refund pays the buyer once the emulator clock passes this time.</p>
                 <button id="prepare" type="submit">Create escrow</button>
             </div>
             <button id="composer-back" class="text-button" type="button">Back</button>

@@ -76,7 +76,6 @@ const otherNetwork = required<HTMLElement>("#other-network");
 const composer = required<HTMLElement>("#composer");
 const loadFields = required<HTMLElement>("#load-fields");
 const createFields = required<HTMLElement>("#create-fields");
-const createHint = required<HTMLElement>("#create-hint");
 const showLoadButton = required<HTMLButtonElement>("#show-load");
 const showCreateButton = required<HTMLButtonElement>("#show-create");
 const composerBack = required<HTMLButtonElement>("#composer-back");
@@ -93,9 +92,7 @@ let exitOpen = false;
 let exitClockToken = 0;
 const minedAtByTxid = new Map<string, number | null>();
 let hopCache = { key: "", at: 0, text: "" };
-let composerMode: "closed" | "create" | "load" = "closed";
 const statusByAddress = new Map<string, string>();
-const mismatched = new Set<string>();
 const COVERED = "arkade-escrow-file-covers";
 
 networkSelect.replaceChildren(
@@ -140,7 +137,7 @@ for (const input of [buyerInput, sellerInput, amountInput, timeoutInput, exitInp
 
 form?.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (composerMode === "load") {
+    if (!loadFields.hidden) {
         void run("load", () => loadByAddress(loadAddressInput.value));
         return;
     }
@@ -171,7 +168,6 @@ restoreFile.addEventListener("change", () => {
 
 window.setInterval(() => {
     if (prepared && fingerprint === currentFingerprint()) void refreshCoins(false);
-    void refreshRailStatuses();
 }, 8000);
 
 async function createEscrow(expectedAddress?: string): Promise<void> {
@@ -207,7 +203,7 @@ async function createEscrow(expectedAddress?: string): Promise<void> {
         contractSection.classList.remove("torn");
         throw new RebuildMismatch(rebuilt, expectedAddress);
     }
-    mismatched.delete(prepared.contract.address);
+    statusByAddress.delete(prepared.contract.address);
     contractSection.classList.remove("torn");
     saveEscrow({
         address: prepared.contract.address,
@@ -274,7 +270,6 @@ async function showUnmatched(address: string, rebuilt: string | undefined, reaso
         : `The artifact could not be compiled with the parameters on this page: ${reason}`;
     const line = `${coinsLine} ${compiled} Change a parameter and load again until the compiled address is the one you pasted.`;
     loadStatus.textContent = line;
-    mismatched.add(address);
     contractSection.classList.add("torn");
     statusByAddress.set(address, "Parameters differ");
     closeComposer();
@@ -381,6 +376,8 @@ async function refreshCoins(announce: boolean): Promise<void> {
     if (!prepared) return;
     coins = await prepared.contract.getUtxos();
     fillCoinSelect();
+    if (prepared) statusByAddress.set(prepared.contract.address, statusWord(coins));
+    paintRail();
     const total = coins.reduce((sum, coin) => sum + coin.value, 0);
     balanceLine.textContent = describeCoins();
     if (announce && coins.length > 0) note(`found ${total} sats`);
@@ -631,18 +628,14 @@ class RebuildMismatch extends Error {
 }
 
 function openComposer(mode: "create" | "load"): void {
-    composerMode = mode;
     composer.hidden = false;
     loadFields.hidden = mode !== "load";
     createFields.hidden = mode !== "create";
-    createHint.hidden = mode !== "create";
     entry.hidden = true;
-    const focus = mode === "load" ? loadAddressInput : buyerInput;
-    focus.focus();
+    (mode === "load" ? loadAddressInput : buyerInput).focus();
 }
 
 function closeComposer(): void {
-    composerMode = "closed";
     composer.hidden = true;
     syncEntry();
 }
@@ -651,7 +644,7 @@ function syncEntry(): void {
     const onNetwork = readEscrows().filter((item) => item.network === networkSelect.value);
     const elsewhere = readEscrows().length - onNetwork.length;
     entry.classList.toggle("empty", readEscrows().length === 0);
-    entry.hidden = composerMode !== "closed";
+    entry.hidden = !composer.hidden;
     otherNetwork.hidden = elsewhere === 0;
     otherNetwork.textContent =
         elsewhere === 0
@@ -702,17 +695,13 @@ async function refreshRailStatuses(): Promise<void> {
     const list = readEscrows().filter((item) => item.network === demo.name);
     await Promise.all(
         list.map(async (escrow) => {
-            if (mismatched.has(escrow.address) && prepared?.contract.address !== escrow.address) {
-                statusByAddress.set(escrow.address, "Parameters differ");
-                return;
-            }
+            if (statusByAddress.get(escrow.address) === "Parameters differ") return;
             if (prepared?.contract.address === escrow.address && fingerprint === currentFingerprint()) {
                 statusByAddress.set(escrow.address, statusWord(coins));
                 return;
             }
             try {
-                const watched = await coinsForAddress(demo, escrow.address);
-                statusByAddress.set(escrow.address, statusWord(watched));
+                statusByAddress.set(escrow.address, statusWord(await coinsForAddress(demo, escrow.address)));
             } catch {
                 statusByAddress.set(escrow.address, "Not checked");
             }
@@ -733,25 +722,22 @@ function shortParty(value: string): string {
     return `…${trimmed.slice(-6)}`;
 }
 
-function covered(): Set<string> {
+function covered(): string[] {
     try {
         const parsed = JSON.parse(localStorage.getItem(COVERED) ?? "[]") as unknown;
-        if (!Array.isArray(parsed)) return new Set();
-        return new Set(parsed.filter((item): item is string => typeof item === "string"));
+        return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
     } catch {
-        return new Set();
+        return [];
     }
 }
 
 function markCovered(addresses: string[]): void {
-    const next = covered();
-    for (const address of addresses) next.add(address);
-    localStorage.setItem(COVERED, JSON.stringify([...next]));
+    localStorage.setItem(COVERED, JSON.stringify([...new Set([...covered(), ...addresses])]));
 }
 
 function syncBackup(): void {
     const address = addressCode.textContent?.trim() ?? "";
-    backup.hidden = contractSection.hidden || !prepared || !address || covered().has(address);
+    backup.hidden = contractSection.hidden || !prepared || !address || covered().includes(address);
 }
 
 function note(message: string): void {
