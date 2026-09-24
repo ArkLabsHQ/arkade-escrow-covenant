@@ -1,0 +1,144 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import { bech32 } from "@scure/base";
+
+import { loadMismatchMessage, shortAddress, unmatchedCopy } from "./use-escrow.ts";
+import { escrowsFromBackup, mergeEscrows, parseEscrowList, removeEscrow, secretToKey, selectBackupEscrow, storedKeysFromText, upsertEscrow } from "./spend.ts";
+
+const hex = (fill: string) => fill.repeat(64).slice(0, 64);
+
+describe("storedKeysFromText", () => {
+    it("reads the three secret keys", () => {
+        const stored = storedKeysFromText(
+            JSON.stringify({
+                buyer: hex("ab"),
+                seller: hex("cd"),
+                oracle: hex("ef").toUpperCase(),
+            }),
+        );
+        assert.equal(stored.oracle, hex("ef"));
+        assert.equal(stored.buyer, hex("ab"));
+        assert.equal(stored.seller, hex("cd"));
+    });
+
+    it("derives the mutinynet BIP86 key from a 12-word mnemonic", async () => {
+        const phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        const key = secretToKey(phrase);
+        const mainnet = secretToKey(phrase, { mainnet: true });
+        assert.equal((await key.xOnlyPublicKey()).length, 32);
+        assert.notEqual(key.toHex(), mainnet.toHex());
+        assert.equal(secretToKey(phrase).toHex(), key.toHex());
+    });
+
+    it("rejects words that are not a mnemonic", () => {
+        assert.throws(() => secretToKey("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon"), /not a valid BIP39 phrase/);
+    });
+
+    it("reads an nsec back into the same key", async () => {
+        const raw = new Uint8Array(32).fill(7);
+        const nsec = bech32.encode("nsec", bech32.toWords(raw));
+        const key = secretToKey(nsec);
+        assert.equal(key.toHex(), Buffer.from(raw).toString("hex"));
+        assert.equal((await key.xOnlyPublicKey()).length, 32);
+    });
+
+    it("keeps reading keys when the file also lists escrows", () => {
+        const stored = storedKeysFromText(
+            JSON.stringify({
+                buyer: hex("ab"),
+                seller: hex("cd"),
+                oracle: hex("ef"),
+                escrows: [{ address: "tark1example" }],
+            }),
+        );
+        assert.equal(stored.buyer, hex("ab"));
+    });
+
+    it("rejects a key that is not 32 bytes", () => {
+        assert.throws(
+            () => storedKeysFromText(JSON.stringify({ buyer: "aa", seller: hex("cd"), oracle: hex("ef") })),
+            /buyer key must be 64 hex characters/,
+        );
+    });
+});
+
+const escrow = {
+    address: "tark1qqexample",
+    network: "mutinynet" as const,
+    buyer: "tark1buyer",
+    seller: "tark1seller",
+    amount: "5000",
+    timeout: "2026-09-23T18:00",
+    exit: "2048",
+};
+
+describe("loadMismatchMessage", () => {
+    it("names the address the details actually compile to", () => {
+        const rebuilt = "tark1qqcpq7yq3e8hhsx6ml3fud93m7827qggaurtz";
+        assert.equal(
+            loadMismatchMessage(rebuilt).includes(shortAddress(rebuilt)),
+            true,
+        );
+        assert.match(loadMismatchMessage(rebuilt), /not the address you entered/);
+    });
+});
+
+describe("unmatchedCopy", () => {
+    it("says an invalid address in one sentence", () => {
+        assert.deepEqual(unmatchedCopy(undefined, "that is not an Arkade address"), {
+            headline: "These details do not match this address.",
+            detail: "That is not an Arkade address",
+        });
+    });
+});
+
+describe("saved escrows", () => {
+    it("keeps one record per address, newest first", () => {
+        const updated = upsertEscrow([escrow], { ...escrow, amount: "9000" });
+        assert.equal(updated.length, 1);
+        assert.equal(updated[0]?.amount, "9000");
+    });
+
+    it("drops a record that cannot rebuild an address", () => {
+        const parsed = parseEscrowList([escrow, { address: "tark1only" }, null]);
+        assert.deepEqual(parsed, [escrow]);
+    });
+
+    it("removes one address and leaves the others", () => {
+        const other = { ...escrow, address: "tark1other" };
+        assert.deepEqual(removeEscrow([escrow, other], escrow.address), [other]);
+        assert.deepEqual(removeEscrow([escrow], "tark1missing"), [escrow]);
+    });
+
+    it("merges a backup in file order without dropping other saved escrows", () => {
+        const other = { ...escrow, address: "tark1other", amount: "1000" };
+        const second = { ...escrow, address: "tark1second", amount: "9000" };
+        const merged = mergeEscrows([other], [escrow, second]);
+        assert.deepEqual(merged.map((item) => item.address), [escrow.address, second.address, other.address]);
+    });
+
+    it("reads escrows from a key backup and ignores a file without them", () => {
+        assert.deepEqual(escrowsFromBackup(JSON.stringify({ escrows: [escrow] })), [escrow]);
+        assert.deepEqual(escrowsFromBackup(JSON.stringify({ buyer: hex("ab") })), []);
+        assert.deepEqual(escrowsFromBackup("not json"), []);
+    });
+
+    it("reads hex keys and escrows from a downloaded backup", () => {
+        const dropped = { ...escrow, address: "ark1main", network: "bitcoin", amount: "2500" };
+        const text = JSON.stringify({
+            buyer: hex("ab"),
+            seller: hex("cd"),
+            oracle: hex("ef"),
+            escrows: [escrow, dropped],
+        });
+        assert.deepEqual(storedKeysFromText(text), {
+            buyer: hex("ab"),
+            seller: hex("cd"),
+            oracle: hex("ef"),
+        });
+        assert.deepEqual(escrowsFromBackup(text), [escrow]);
+        assert.equal(selectBackupEscrow(escrowsFromBackup(text), "mutinynet")?.address, escrow.address);
+        assert.equal(selectBackupEscrow([], "mutinynet"), undefined);
+    });
+});
