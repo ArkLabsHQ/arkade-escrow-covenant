@@ -53,7 +53,8 @@ const sellerVtxo = new DefaultVtxo.Script({
 const buyerAddress = buyerVtxo.address(networks.mutinynet.hrp, client.serverKey);
 const sellerAddress = sellerVtxo.address(networks.mutinynet.hrp, client.serverKey);
 
-const contract = client.contract(escrowProgram(), {
+const program = escrowProgram();
+const contract = client.contract(program, {
     partyAPk: await buyerKey.xOnlyPublicKey(),
     partyBPk: await sellerKey.xOnlyPublicKey(),
     oraclePk: await oracleKey.xOnlyPublicKey(),

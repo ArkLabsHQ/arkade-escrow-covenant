@@ -27,7 +27,17 @@ node --experimental-strip-types scripts/escrow-example.ts cancel
 
 The first command prints the funding address and stops when that address has no coins. Pay that address from Arkade.Money, then run `complete` or `cancel`.
 
-The page does the same thing with keys from `localStorage` (`loadKeys` in `app/src/spend.ts`) and with the buyer and seller addresses you paste. Those pasted addresses are only the payout scripts. The public keys below are `xOnlyPublicKey()` of the private keys.
+The page does the same thing with keys from `localStorage` (`loadKeys` in `app/src/spend.ts`) and with the buyer and seller addresses you paste. Those pasted addresses are only the payout scripts. The public keys below are `xOnlyPublicKey()` of the private keys. A new escrow starts at 10,000 sats and a refund time of the current minute. Those two fields are not saved in the browser.
+
+0. Load the compiled contract. This is a setup step, once per process. `escrowProgram()` in `app/src/program.ts` reads `contracts/escrow.artifact.json` with `arkade.programFromArtifact`, then sets the unilateral exit CSV from blocks to seconds. The script imports that function. It does not compile `escrow.ark` at runtime.
+
+```ts
+import { escrowProgram } from "../app/src/program.ts";
+
+const program = escrowProgram();
+```
+
+`client.contract` below receives `program`.
 
 1. Three 32-byte secrets. `01`, `02`, and `03` are valid secp256k1 scalars. Replace them before locking real money.
 
@@ -37,7 +47,7 @@ const sellerKey = SingleKey.fromHex("0000000000000000000000000000000000000000000
 const oracleKey = SingleKey.fromHex("0000000000000000000000000000000000000000000000000000000000000003");
 ```
 
-2. Numbers the constructor stores. `timeoutAt` is already in the past, so `cancel` is allowed as soon as a coin arrives. `exit` is 512 seconds, the smallest multiple of 512 this operator accepts.
+2. Numbers the constructor stores. The page uses the current minute. This script subtracts 60 seconds so `cancel` can run as soon as a coin arrives. `exit` is 512 seconds, the smallest multiple of 512 this operator accepts.
 
 ```ts
 const amount = 10_000n;
@@ -82,7 +92,7 @@ const sellerVtxo = new DefaultVtxo.Script({
 5. Pass those values into `client.contract`. `contract.address` is what you fund.
 
 ```ts
-const contract = client.contract(escrowProgram(), {
+const contract = client.contract(program, {
     partyAPk: await buyerKey.xOnlyPublicKey(),
     partyBPk: await sellerKey.xOnlyPublicKey(),
     oraclePk: await oracleKey.xOnlyPublicKey(),

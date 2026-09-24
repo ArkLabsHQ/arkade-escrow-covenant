@@ -161,14 +161,15 @@ function exitSentence(minedAt: number | null, open: boolean, exitSeconds: bigint
 
 function initialModel(): EscrowModel {
     const demo = DEMO_NETWORKS[0];
-    const amount = localStorage.getItem("arkade-escrow-amount") ?? "10000";
+    localStorage.removeItem("arkade-escrow-amount");
+    localStorage.removeItem("arkade-escrow-timeout");
     const storedExit = localStorage.getItem("arkade-escrow-exit");
     return {
         network: demo.name,
         buyer: localStorage.getItem("arkade-escrow-buyer") ?? "",
         seller: localStorage.getItem("arkade-escrow-seller") ?? "",
-        amount,
-        timeout: localStorage.getItem("arkade-escrow-timeout") ?? localInput(nowSeconds() - 60),
+        amount: "10000",
+        timeout: localInput(nowSeconds()),
         exit: !storedExit || storedExit === "0" ? "2048" : storedExit,
         composer: null,
         loadAddress: "",
@@ -207,7 +208,7 @@ function initialModel(): EscrowModel {
         exitDisabled: true,
         walletHref: demo.walletUrl,
         walletLabel: demo.walletUrl.replace("https://", ""),
-        customAmount: !AMOUNT_PRESETS.some((preset) => String(preset) === amount),
+        customAmount: false,
     };
 }
 
@@ -273,8 +274,8 @@ export function useEscrow() {
         const current = modelRef.current;
         localStorage.setItem("arkade-escrow-buyer", current.buyer.trim());
         localStorage.setItem("arkade-escrow-seller", current.seller.trim());
-        localStorage.setItem("arkade-escrow-amount", current.amount);
-        localStorage.setItem("arkade-escrow-timeout", current.timeout);
+        localStorage.removeItem("arkade-escrow-amount");
+        localStorage.removeItem("arkade-escrow-timeout");
         localStorage.setItem("arkade-escrow-exit", current.exit);
         localStorage.setItem("arkade-escrow-network", current.network);
     }
@@ -956,7 +957,9 @@ export function useEscrow() {
             patch({
                 composer: mode,
                 loadError: "",
-                customAmount: !AMOUNT_PRESETS.some((preset) => String(preset) === modelRef.current.amount),
+                ...(mode === "create"
+                    ? { amount: "10000", customAmount: false, timeout: localInput(nowSeconds()) }
+                    : { customAmount: !AMOUNT_PRESETS.some((preset) => String(preset) === modelRef.current.amount) }),
             });
             if (mode === "load") fillKnownEscrow(modelRef.current.loadAddress);
         },
