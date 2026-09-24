@@ -283,20 +283,29 @@ export function App() {
                                     </button>
                                 </form>
                             ) : (
-                                <div className="payout">
+                                <div className="payout" aria-busy={model.checking || model.releaseBusy}>
                                     <h2>Pay out</h2>
-                                    <button
-                                        className="btn primary wide"
-                                        type="button"
-                                        disabled={model.completeDisabled}
-                                        aria-busy={model.releaseBusy}
-                                        onClick={actions.release}
-                                    >
-                                        Release to the seller
-                                    </button>
-                                    <button className="btn wide" type="button" disabled={model.cancelDisabled} onClick={actions.refund}>
-                                        Refund the buyer
-                                    </button>
+                                    {model.checking ? (
+                                        <p className="check" role="status">
+                                            <span className="check-bar" aria-hidden="true" />
+                                            Checking this escrow
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <button
+                                                className="btn primary wide"
+                                                type="button"
+                                                disabled={model.completeDisabled}
+                                                aria-busy={model.releaseBusy}
+                                                onClick={actions.release}
+                                            >
+                                                Release to the seller
+                                            </button>
+                                            <button className="btn wide" type="button" disabled={model.cancelDisabled} onClick={actions.refund}>
+                                                Refund the buyer
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             )}
 
@@ -323,7 +332,7 @@ export function App() {
                             ) : null}
 
                             <p className="advanced-label">Advanced</p>
-                            <Accordion.Root className="more">
+                            <Accordion.Root className="more" onValueChange={(value) => actions.inspectAdvanced(value)}>
                                 <Accordion.Item className="more-item" value="bitcoin">
                                     <Accordion.Header>
                                         <Accordion.Trigger className="more-trigger" type="button">

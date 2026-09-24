@@ -783,31 +783,25 @@ export interface UnrollHop {
     onchain: "confirmed" | "mempool" | "offchain";
 }
 
-/** Indexer chain from the on-chain root out to this coin, with Bitcoin status. */
+/**
+ * Indexer chain from the on-chain root out to this coin.
+ * Virtual transactions are not Bitcoin transactions, so this does not ask Esplora.
+ * A 404 there is the normal answer for an Arkade txid.
+ */
 export async function listUnrollHops(
     demo: DemoNetwork,
     coin: { txid: string; vout: number },
 ): Promise<UnrollHop[]> {
     const indexer = new RestIndexerProvider(demo.arkadeUrl);
-    const explorer = new EsploraProvider(demo.explorerUrl);
     const { chain } = await indexer.getVtxoChain(coin);
-    const hops: UnrollHop[] = [];
-    for (const step of [...chain].reverse()) {
+    return [...chain].reverse().map((step) => {
         const kind = step.type.replace("INDEXER_CHAINED_TX_TYPE_", "").toLowerCase();
-        if (kind === "commitment") {
-            hops.push({ txid: step.txid, kind, onchain: "confirmed" });
-            continue;
-        }
-        let onchain: UnrollHop["onchain"] = "offchain";
-        try {
-            const status = await explorer.getTxStatus(step.txid);
-            onchain = status.confirmed ? "confirmed" : "mempool";
-        } catch {
-            onchain = "offchain";
-        }
-        hops.push({ txid: step.txid, kind, onchain });
-    }
-    return hops;
+        return {
+            txid: step.txid,
+            kind,
+            onchain: kind === "commitment" ? "confirmed" : "offchain",
+        } satisfies UnrollHop;
+    });
 }
 
 /**

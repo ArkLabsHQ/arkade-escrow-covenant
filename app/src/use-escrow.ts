@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { hex } from "@scure/base";
 
-import { EsploraProvider, OnchainWallet, type VirtualCoin } from "@arkade-os/sdk";
+import { EsploraProvider, OnchainWallet, RestIndexerProvider, type VirtualCoin } from "@arkade-os/sdk";
 
 import {
     bitcoinMinedAt,
@@ -13,7 +13,6 @@ import {
     DEMO_NETWORKS,
     describeExitClock,
     exitOpensAt,
-    exitAnchor,
     escrowsFromBackup,
     forgetEscrow,
     mergeEscrows,
@@ -93,6 +92,8 @@ export type EscrowModel = {
     empty: boolean;
     backup: boolean;
     busy: boolean;
+    /** True while release and refund are still being decided for a just-opened escrow. */
+    checking: boolean;
     releaseBusy: boolean;
     completeDisabled: boolean;
     cancelDisabled: boolean;
@@ -201,6 +202,7 @@ function initialModel(): EscrowModel {
         empty: readEscrows().length === 0,
         backup: false,
         busy: false,
+        checking: false,
         releaseBusy: false,
         completeDisabled: true,
         cancelDisabled: true,
@@ -224,7 +226,10 @@ export function useEscrow() {
     const busyRef = useRef(false);
     const exitOpenRef = useRef(false);
     const exitClockToken = useRef(0);
-    const minedAtByTxid = useRef(new Map<string, number | null>());
+    const bitcoinOpenRef = useRef(false);
+    const activityOpenRef = useRef(false);
+    const watchAbort = useRef<AbortController | null>(null);
+    const minedAtByTxid = useRef(new Map<string, { at: number; minedAt: number | null }>());
     const hopCache = useRef({ key: "", at: 0, text: "" });
     const statusByAddress = useRef(new Map<string, string>());
 
@@ -373,7 +378,7 @@ export function useEscrow() {
     function markStale(): void {
         if (!preparedRef.current) return;
         paintFacts();
-        void updateExitClock();
+        if (bitcoinOpenRef.current) void updateExitClock();
     }
 
     function updateWallet(network = modelRef.current.network): void {
@@ -389,6 +394,8 @@ export function useEscrow() {
     }
 
     function hideContract(): void {
+        bitcoinOpenRef.current = false;
+        activityOpenRef.current = false;
         if (modelRef.current.contractOpen) patch({ contractOpen: false });
         paintRail();
     }
@@ -453,7 +460,8 @@ export function useEscrow() {
         paintFacts();
         const total = facts.spendable.reduce((sum, coin) => sum + coin.value, 0);
         if (announce && facts.spendable.length > 0) note(`found ${formatSats(total)} sats`);
-        await updateExitClock();
+        if (bitcoinOpenRef.current) void updateExitClock();
+        if (activityOpenRef.current) void refreshHops();
     }
 
     async function refreshRailStatuses(): Promise<void> {
@@ -490,6 +498,7 @@ export function useEscrow() {
     }
 
     async function updateExitClock(): Promise<void> {
+        if (!bitcoinOpenRef.current) return;
         const token = ++exitClockToken.current;
         const current = preparedRef.current;
         const coin =
@@ -497,31 +506,28 @@ export function useEscrow() {
             coinsRef.current[0];
         if (!current || fingerprintRef.current !== currentFingerprint() || !coin) {
             exitOpenRef.current = false;
-            patch({ exitClock: "", hops: "" });
+            patch({ exitClock: "" });
             syncButtons();
             return;
         }
-        const anchor = exitAnchor(coin);
-        if (!anchor) {
+        // A virtual coin is not a Bitcoin transaction. Asking Mempool for it only 404s.
+        if (!coin.isUnrolled) {
             exitOpenRef.current = false;
-            patch({ exitClock: "This coin has no Bitcoin output yet, so the exit clock has not started.", hops: "" });
+            patch({ exitClock: "Unroll first. The wait starts once Bitcoin mines this escrow." });
             syncButtons();
             return;
         }
         try {
-            const minedAt = await cachedMinedAt(current.demo.explorerUrl, anchor.txid);
+            const minedAt = await cachedMinedAt(current.demo.explorerUrl, coin.txid);
             if (token !== exitClockToken.current) return;
             const described = describeExitClock({
-                txid: anchor.txid,
+                txid: coin.txid,
                 minedAt,
                 exitSeconds: current.exit,
                 now: nowSeconds(),
             });
             exitOpenRef.current = described.open;
-            patch({
-                exitClock: exitSentence(minedAt, described.open, current.exit),
-                hops: await hopText(current.demo, coin),
-            });
+            patch({ exitClock: exitSentence(minedAt, described.open, current.exit) });
         } catch (error) {
             if (token !== exitClockToken.current) return;
             exitOpenRef.current = false;
@@ -530,6 +536,64 @@ export function useEscrow() {
             });
         }
         syncButtons();
+    }
+
+    async function refreshHops(): Promise<void> {
+        if (!activityOpenRef.current) return;
+        const current = preparedRef.current;
+        const coin =
+            coinsRef.current.find((item) => `${item.txid}:${item.vout}` === modelRef.current.coinId) ??
+            coinsRef.current[0];
+        if (!current || !coin) {
+            patch({ hops: "" });
+            return;
+        }
+        try {
+            patch({ hops: await hopText(current.demo, coin) });
+        } catch (error) {
+            patch({
+                hops: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+
+    function stopWatch(): void {
+        watchAbort.current?.abort();
+        watchAbort.current = null;
+    }
+
+    /** Indexer stream for this contract. Replaces polling release and refund state. */
+    function startWatch(prepared: PreparedEscrow): void {
+        stopWatch();
+        const controller = new AbortController();
+        watchAbort.current = controller;
+        const address = prepared.contract.address;
+        void (async () => {
+            const indexer = new RestIndexerProvider(prepared.demo.arkadeUrl);
+            let subscriptionId = "";
+            try {
+                subscriptionId = await indexer.subscribeForScripts([hex.encode(prepared.contract.pkScript)]);
+                if (controller.signal.aborted) return;
+                for await (const update of indexer.getSubscription(subscriptionId, controller.signal)) {
+                    if (preparedRef.current?.contract.address !== address || busyRef.current) continue;
+                    const changed =
+                        (update.newVtxos?.length ?? 0) +
+                            (update.spentVtxos?.length ?? 0) +
+                            (update.sweptVtxos?.length ?? 0) >
+                        0;
+                    if (!changed) continue;
+                    try {
+                        await refreshCoins(false);
+                    } catch {
+                        // A failed read leaves the last payout state in place.
+                    }
+                }
+            } catch {
+                // Aborting the stream, or the indexer closing it, ends the watch.
+            } finally {
+                if (subscriptionId) void indexer.unsubscribeForScripts(subscriptionId).catch(() => undefined);
+            }
+        })();
     }
 
     async function hopText(demo: DemoNetwork, coin: { txid: string; vout: number }): Promise<string> {
@@ -543,9 +607,9 @@ export function useEscrow() {
 
     async function cachedMinedAt(explorerUrl: string, txid: string): Promise<number | null> {
         const cached = minedAtByTxid.current.get(txid);
-        if (cached !== undefined && cached !== null) return cached;
+        if (cached && (cached.minedAt !== null || Date.now() - cached.at < 60_000)) return cached.minedAt;
         const minedAt = await bitcoinMinedAt(explorerUrl, txid);
-        if (minedAt !== null) minedAtByTxid.current.set(txid, minedAt);
+        minedAtByTxid.current.set(txid, { at: Date.now(), minedAt });
         return minedAt;
     }
 
@@ -590,6 +654,8 @@ export function useEscrow() {
             sellerView: modelRef.current.seller.trim(),
             balance: "",
             refundWhen: "",
+            exitClock: "",
+            hops: "",
         });
         showContract();
         if (prepared.emulatorVersion.startsWith("v0.0.7")) {
@@ -608,7 +674,10 @@ export function useEscrow() {
         patch({ loadAddress: prepared.contract.address });
         closeComposer();
         syncBackup();
+        exitOpenRef.current = false;
+        hopCache.current = { key: "", at: 0, text: "" };
         await refreshCoins(true);
+        startWatch(prepared);
         void refreshRailStatuses();
     }
 
@@ -674,6 +743,7 @@ export function useEscrow() {
     }
 
     async function showUnmatched(address: string, rebuilt: string | undefined, reason: string): Promise<void> {
+        stopWatch();
         const watched = await coinsForAddress(selectedNetwork(), address).catch(() => []);
         preparedRef.current = undefined;
         fingerprintRef.current = "";
@@ -739,7 +809,7 @@ export function useEscrow() {
         else note(`Broadcast ${shortAddress(progress.txid)}`);
         hopCache.current.at = 0;
         await showFeeWallet();
-        await updateExitClock();
+        await refreshCoins(true);
     }
 
     async function exit(): Promise<void> {
@@ -764,6 +834,9 @@ export function useEscrow() {
         if (buyerText) keysRef.current = { ...keysRef.current, buyer: secretToKey(buyerText) };
         if (sellerText) keysRef.current = { ...keysRef.current, seller: secretToKey(sellerText) };
         saveStoredKeys(exportStoredKeys(keysRef.current));
+        stopWatch();
+        bitcoinOpenRef.current = false;
+        activityOpenRef.current = false;
         preparedRef.current = undefined;
         coinsRef.current = [];
         factsRef.current = EMPTY_FACTS;
@@ -780,6 +853,9 @@ export function useEscrow() {
         if (!text) throw new Error("Paste an oracle key.");
         keysRef.current = { ...keysRef.current, oracle: secretToKey(text) };
         saveStoredKeys(exportStoredKeys(keysRef.current));
+        stopWatch();
+        bitcoinOpenRef.current = false;
+        activityOpenRef.current = false;
         preparedRef.current = undefined;
         coinsRef.current = [];
         factsRef.current = EMPTY_FACTS;
@@ -897,8 +973,10 @@ export function useEscrow() {
 
     async function run(label: string, action: () => Promise<void>): Promise<void> {
         busyRef.current = true;
+        const checking = label === "create" || label === "load" || label === "match" || label === "backup" || label === "restore";
         patch({
             busy: true,
+            checking,
             releaseBusy: label === "unlock",
             completeDisabled: true,
             cancelDisabled: true,
@@ -913,7 +991,7 @@ export function useEscrow() {
             toast.error(message.replace(/\b[A-Za-z0-9]{20,}\b/g, (token) => shortAddress(token)));
         } finally {
             busyRef.current = false;
-            patch({ busy: false, releaseBusy: false });
+            patch({ busy: false, checking: false, releaseBusy: false });
             syncButtons();
             syncBackup();
         }
@@ -930,16 +1008,12 @@ export function useEscrow() {
 
     useEffect(() => {
         void showKeys();
-        void showFeeWallet();
         syncEntry();
         void (async () => {
             await raiseExitToOperator();
             await refreshRailStatuses();
         })();
-        const timer = window.setInterval(() => {
-            if (preparedRef.current && fingerprintRef.current === currentFingerprint()) void refreshCoins(false);
-        }, 8000);
-        return () => window.clearInterval(timer);
+        return () => stopWatch();
         // Mount only. Later calls go through actions.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -1030,9 +1104,27 @@ export function useEscrow() {
         },
         savePendingCard,
         confirmRemove,
+        inspectAdvanced(open: string[]) {
+            const bitcoin = open.includes("bitcoin");
+            const activity = open.includes("activity");
+            const openedBitcoin = bitcoin && !bitcoinOpenRef.current;
+            const openedActivity = activity && !activityOpenRef.current;
+            bitcoinOpenRef.current = bitcoin;
+            activityOpenRef.current = activity;
+            if (openedBitcoin) {
+                void showFeeWallet();
+                void updateExitClock();
+            }
+            if (openedActivity) {
+                hopCache.current.at = 0;
+                void refreshHops();
+            }
+        },
         selectCoin(coinId: string) {
             patch({ coinId });
-            void updateExitClock();
+            hopCache.current.at = 0;
+            if (bitcoinOpenRef.current) void updateExitClock();
+            if (activityOpenRef.current) void refreshHops();
         },
     };
 
