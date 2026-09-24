@@ -285,27 +285,25 @@ export function App() {
                             ) : (
                                 <div className="payout" aria-busy={model.checking || model.releaseBusy}>
                                     <h2>Pay out</h2>
-                                    {model.checking ? (
-                                        <p className="check" role="status">
-                                            <span className="check-bar" aria-hidden="true" />
-                                            Checking this escrow
-                                        </p>
-                                    ) : (
-                                        <>
-                                            <button
-                                                className="btn primary wide"
-                                                type="button"
-                                                disabled={model.completeDisabled}
-                                                aria-busy={model.releaseBusy}
-                                                onClick={actions.release}
-                                            >
-                                                Release to the seller
-                                            </button>
-                                            <button className="btn wide" type="button" disabled={model.cancelDisabled} onClick={actions.refund}>
-                                                Refund the buyer
-                                            </button>
-                                        </>
-                                    )}
+                                    <button
+                                        className="btn primary wide"
+                                        type="button"
+                                        disabled={model.checking || model.completeDisabled}
+                                        aria-busy={model.checking || model.releaseBusy}
+                                        onClick={actions.release}
+                                    >
+                                        {model.checking ? (
+                                            <span className="btn-label">
+                                                <span className="spinner" aria-hidden="true" />
+                                                Checking
+                                            </span>
+                                        ) : (
+                                            "Release to the seller"
+                                        )}
+                                    </button>
+                                    <button className="btn wide" type="button" disabled={model.cancelDisabled || model.checking} onClick={actions.refund}>
+                                        Refund the buyer
+                                    </button>
                                 </div>
                             )}
 

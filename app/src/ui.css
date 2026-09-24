@@ -107,6 +107,24 @@ h1 {
 .btn.primary { background: var(--ink); color: white; }
 .btn.wide { width: 100%; }
 .btn:disabled { opacity: 0.38; }
+.btn.primary:disabled[aria-busy="true"] { opacity: 1; cursor: progress; }
+.btn-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.spinner {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
 
 .empty {
     max-width: 26rem;
@@ -179,7 +197,7 @@ h1 {
 }
 @media (prefers-reduced-motion: reduce) {
     .btn:active, .card:active, .forget:active { transform: none; }
-    .check-bar { animation: none; width: 100%; opacity: 0.35; }
+    .spinner { animation: none; }
 }
 .btn.danger { background: #fdecec; color: var(--fault); }
 .remove-actions { padding-bottom: 16px; }
@@ -351,32 +369,6 @@ a.addr {
     font-size: 13px;
     font-weight: 600;
     color: var(--secondary);
-}
-.check {
-    position: relative;
-    display: grid;
-    place-items: center;
-    min-height: 44px;
-    margin: 0;
-    overflow: hidden;
-    border-radius: 12px;
-    background: var(--fill);
-    color: var(--secondary);
-    font-size: 16px;
-    font-weight: 600;
-}
-.check-bar {
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    width: 36%;
-    height: 2px;
-    background: var(--ink);
-    animation: check-slide 1.15s ease-in-out infinite;
-}
-@keyframes check-slide {
-    from { transform: translateX(-120%); }
-    to { transform: translateX(320%); }
 }
 .notice {
     margin: 0 16px 12px;

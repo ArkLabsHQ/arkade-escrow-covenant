@@ -450,18 +450,33 @@ export function useEscrow() {
     async function refreshCoins(announce: boolean): Promise<void> {
         const prepared = preparedRef.current;
         if (!prepared) return;
-        const marks = leafMarksFromCompiled(prepared.contract.vtxoScript.compiled, prepared.contract.client.emulatorKey);
-        const facts = await escrowFacts(prepared.demo, prepared.contract.address, marks);
-        factsRef.current = facts;
-        coinsRef.current = [...facts.spendable, ...facts.unrolled];
-        fillCoinSelect();
-        statusByAddress.current.set(prepared.contract.address, statusWord(facts, modelRef.current.timeout));
-        paintRail();
-        paintFacts();
-        const total = facts.spendable.reduce((sum, coin) => sum + coin.value, 0);
-        if (announce && facts.spendable.length > 0) note(`found ${formatSats(total)} sats`);
-        if (bitcoinOpenRef.current) void updateExitClock();
-        if (activityOpenRef.current) void refreshHops();
+        const factsNow = factsRef.current;
+        // Funds can land a few seconds before the spend button is armed. Show that wait on the button.
+        const arming =
+            !busyRef.current &&
+            modelRef.current.contractOpen &&
+            !modelRef.current.torn &&
+            factsNow.spendable.length === 0 &&
+            factsNow.unrolled.length === 0 &&
+            !factsNow.closed;
+        if (arming) patch({ checking: true });
+        try {
+            const marks = leafMarksFromCompiled(prepared.contract.vtxoScript.compiled, prepared.contract.client.emulatorKey);
+            const facts = await escrowFacts(prepared.demo, prepared.contract.address, marks);
+            factsRef.current = facts;
+            coinsRef.current = [...facts.spendable, ...facts.unrolled];
+            fillCoinSelect();
+            statusByAddress.current.set(prepared.contract.address, statusWord(facts, modelRef.current.timeout));
+            paintRail();
+            paintFacts();
+            const total = facts.spendable.reduce((sum, coin) => sum + coin.value, 0);
+            if (announce && facts.spendable.length > 0) note(`found ${formatSats(total)} sats`);
+            if (bitcoinOpenRef.current) void updateExitClock();
+            if (activityOpenRef.current) void refreshHops();
+        } finally {
+            syncButtons();
+            if (arming) patch({ checking: false });
+        }
     }
 
     async function refreshRailStatuses(): Promise<void> {
