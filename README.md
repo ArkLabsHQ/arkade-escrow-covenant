@@ -144,7 +144,7 @@ pnpm dev
 
 The page is http://127.0.0.1:4173. `pnpm build` writes `dist/`.
 
-The page calls the same `client.contract` sequence from `prepareEscrow`, using keys stored in this browser instead of the three hex literals. The funding address is `contract.address`, also copied as `bitcoin:?ark=<address>&amount=<sats>`. Release calls `spendComplete`. Refund calls `spendCancel`. Under Advanced, Unroll publishes the funding transaction, and Exit on chain calls `spendUnilateral` after the Bitcoin CSV. A spent escrow stays on the list as Refunded to the buyer or Released to the seller. Settings holds the oracle key. Remove from this browser, after Advanced, deletes the local card and can save it as `arkade-escrow.json` first.
+The page calls the same `client.contract` sequence from `prepareEscrow`, using keys stored in this browser instead of the three hex literals. The funding address is `contract.address`, also copied as `bitcoin:?ark=<address>&amount=<btc>`. One thousand sats is `amount=0.00001`. Release calls `spendComplete`. Refund calls `spendCancel`. Under Advanced, Unroll publishes the funding transaction, and Exit on chain calls `spendUnilateral` after the Bitcoin CSV. A spent escrow stays on the list as Refunded to the buyer or Released to the seller. Settings holds the oracle key. Remove from this browser, after Advanced, deletes the local card and can save it as `arkade-escrow.json` first.
 
 
 ## GitHub Pages

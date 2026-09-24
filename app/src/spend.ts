@@ -232,12 +232,19 @@ export function arkadeAddressUrl(spaceUrl: string, address: string): string {
     return `${spaceUrl}/address/${encodeURIComponent(address)}`;
 }
 
-/** BIP321 pay link for an Arkade address. `amount` is an integer number of satoshis. */
+/** BIP321 pay link. `amount` is an integer number of satoshis. BIP21 writes that value in BTC. */
 export function bip321FundingUri(address: string, amount: string | number | bigint): string {
     const arkadeAddress = address.trim();
     const sats = canonicalSats(amount);
     if (!arkadeAddress || sats === null) return "";
-    return `bitcoin:?ark=${encodeURIComponent(arkadeAddress)}&amount=${encodeURIComponent(sats)}`;
+    return `bitcoin:?ark=${encodeURIComponent(arkadeAddress)}&amount=${satsToBtc(BigInt(sats))}`;
+}
+
+/** 1000 sats is 0.00001 BTC. Trailing zeros after the point are omitted. */
+function satsToBtc(sats: bigint): string {
+    const whole = sats / 100_000_000n;
+    const fraction = (sats % 100_000_000n).toString().padStart(8, "0").replace(/0+$/, "");
+    return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
 function canonicalSats(amount: string | number | bigint): string | null {
