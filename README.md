@@ -15,101 +15,108 @@ An Arkade escrow for Mutinynet. `contracts/escrow.ark` is the source. `contracts
 
 The artifact was produced by arkade-compiler `c37c9da`. `updatedAt` inside the JSON is the compiler's timestamp.
 
-## Parameters
+## Build and spend
 
-`prepareEscrow` in `app/src/spend.ts` turns page inputs into the constructor arguments of `Escrow`. Party A is the buyer. Party B is the seller.
+`scripts/escrow-example.ts` is a complete script. The private keys are the literals below. Nothing else is left as a placeholder. From the repo root, after `pnpm install`:
 
-| Constructor field | Passed as |
-| --- | --- |
-| `partyAPk` | Buyer x-only public key |
-| `partyBPk` | Seller x-only public key |
-| `oraclePk` | Oracle x-only public key |
-| `oracleMessageHash` | `sha256` of the 32-byte attestation |
-| `partyAScript` | 32-byte witness program of the buyer Arkade address |
-| `partyBScript` | 32-byte witness program of the seller Arkade address |
-| `amount` | Sats `complete` must pay the seller |
-| `timeoutAt` | Unix seconds. `cancel` waits for the emulator clock |
-| `exit` | Seconds, a multiple of 512, at least the operator's unilateral exit delay |
+```sh
+node --experimental-strip-types scripts/escrow-example.ts
+node --experimental-strip-types scripts/escrow-example.ts complete
+node --experimental-strip-types scripts/escrow-example.ts cancel
+```
 
-The attestation is `sha256(utf8("release-to-seller"))`. The contract commits `sha256` of that 32-byte value. The oracle later signs the 32-byte value, not the label.
+The first command prints the funding address and stops when that address has no coins. Pay that address from Arkade.Money, then run `complete` or `cancel`.
 
-`payoutFromAddress` reads `partyAScript` and `partyBScript` from Arkade addresses on this operator. The address must use the operator's human-readable part and server key. The witness program is `vtxoTaprootKey`. The output script that pays it is `pkScript`, and that is what a spend puts on the transaction.
+The page does the same thing with keys from `localStorage` (`loadKeys` in `app/src/spend.ts`) and with the buyer and seller addresses you paste. Those pasted addresses are only the payout scripts. The public keys below are `xOnlyPublicKey()` of the private keys.
 
-## Generate the contract
-
-Connect as the buyer, then instantiate the program with those fields. `client.contract` returns the address to fund.
+1. Three 32-byte secrets. `01`, `02`, and `03` are valid secp256k1 scalars. Replace them before locking real money.
 
 ```ts
-import { arkade } from "@arkade-os/sdk";
-import { escrowProgram } from "./app/src/program.ts";
+const buyerKey = SingleKey.fromHex("0000000000000000000000000000000000000000000000000000000000000001");
+const sellerKey = SingleKey.fromHex("0000000000000000000000000000000000000000000000000000000000000002");
+const oracleKey = SingleKey.fromHex("0000000000000000000000000000000000000000000000000000000000000003");
+```
 
-const program = escrowProgram();
+2. Numbers the constructor stores. `timeoutAt` is already in the past, so `cancel` is allowed as soon as a coin arrives. `exit` is 512 seconds, the smallest multiple of 512 this operator accepts.
+
+```ts
+const amount = 10_000n;
+const timeoutAt = BigInt(Math.floor(Date.now() / 1000) - 60);
+const exit = 512n;
+```
+
+3. The three Mutinynet clients, then a session whose identity is the buyer key. `client.serverKey` is the operator key returned by that session. It is not one of the three secrets above.
+
+```ts
+const arkProvider = new RestArkProvider("https://mutinynet.arkade.sh");
+const indexer = new RestIndexerProvider("https://mutinynet.arkade.sh");
+const emulator = new RestEmulatorProvider("https://emulator.mutinynet.arkade.sh");
+
 const client = await arkade.Arkade.connect({
-    arkade: ark,
+    arkade: arkProvider,
     indexer,
     emulator,
     identity: buyerKey,
-    network,
+    network: networks.mutinynet,
 });
+```
 
-const message = await releaseMessage(); // 32 bytes
-const contract = client.contract(program, {
+4. Public keys and payout scripts. `partyAPk` and `partyBPk` are the x-only keys of `buyerKey` and `sellerKey`. `partyAScript` and `partyBScript` are the tweaked keys of a normal Arkade wallet output (`DefaultVtxo`: the user and the server can spend together, or the user can exit). `pkScript` on the encoded address is what a later spend puts in the transaction output. The contract compares that output to the tweaked key.
+
+```ts
+const message = await sha256(new TextEncoder().encode("release-to-seller"));
+const buyerVtxo = new DefaultVtxo.Script({
+    pubKey: await buyerKey.xOnlyPublicKey(),
+    serverPubKey: client.serverKey,
+    csvTimelock: { type: "seconds", value: 512n },
+});
+const sellerVtxo = new DefaultVtxo.Script({
+    pubKey: await sellerKey.xOnlyPublicKey(),
+    serverPubKey: client.serverKey,
+    csvTimelock: { type: "seconds", value: 512n },
+});
+```
+
+`sha256` is the function at the bottom of the script. The contract commits `sha256(message)`, and the oracle signs `message`.
+
+5. Pass those values into `client.contract`. `contract.address` is what you fund.
+
+```ts
+const contract = client.contract(escrowProgram(), {
     partyAPk: await buyerKey.xOnlyPublicKey(),
     partyBPk: await sellerKey.xOnlyPublicKey(),
     oraclePk: await oracleKey.xOnlyPublicKey(),
     oracleMessageHash: await sha256(message),
-    partyAScript: buyer.program,
-    partyBScript: seller.program,
-    amount,      // bigint sats
-    timeoutAt,   // bigint unix seconds
-    exit,        // bigint seconds
+    partyAScript: buyerVtxo.tweakedPublicKey,
+    partyBScript: sellerVtxo.tweakedPublicKey,
+    amount,
+    timeoutAt,
+    exit,
 });
-
-contract.address; // fund this
 ```
 
-`prepareEscrow` is that sequence, plus the exit-delay check against `ark.getInfo().unilateralExitDelay`. Funding is a normal Arkade payment to `contract.address`. The coin is an unspent vtxo from `contract.getUtxos()`.
-
-## Spend a funded coin
-
-Each spend names a function on `contract.functions`, selects the coin with `.from(coin)`, sets the outputs with `.to(...)`, and submits with `.send()`. `complete` and `cancel` take one input. Output scripts are the `pkScript` values from `payoutFromAddress`, not the 32-byte witness programs stored in the contract.
-
-`completeOutputs`, `cancelOutputs`, and `unilateralOutputs` in `app/src/outputs.ts` build those lists. `complete` pays `amount` to the seller. A surplus above 330 sats is a second output back to the buyer. `cancel` pays the whole coin to the buyer. `unilateral` pays the seller and does not constrain outputs inside the contract.
-
-Release. The oracle signs `message`. The function arguments are that message and the Schnorr signature.
+6. After the address has a coin, `contract.getUtxos()` returns it. `complete` and `cancel` are methods on `contract.functions`. The output script is `buyerAddress.pkScript` or `sellerAddress.pkScript` from `buyerVtxo.address(networks.mutinynet.hrp, client.serverKey)`.
 
 ```ts
-const signature = await oracleKey.signMessage(message, "schnorr");
-const outputs = completeOutputs(BigInt(coin.value), amount, seller.pkScript, buyer.pkScript);
+const coin = (await contract.getUtxos())[0];
 
-const { txid } = await contract.functions
+const signature = await oracleKey.signMessage(message, "schnorr");
+await contract.functions
     .complete(message, signature)
     .from(coin)
-    .to(outputs)
+    .to(completeOutputs(BigInt(coin.value), amount, sellerAddress.pkScript, buyerAddress.pkScript))
     .send();
-```
 
-Refund. No arguments. The emulator clock must have reached `timeoutAt`.
-
-```ts
-const outputs = cancelOutputs(BigInt(coin.value), buyer.pkScript);
-
-const { txid } = await contract.functions
+await contract.functions
     .cancel()
     .from(coin)
-    .to(outputs)
+    .to(cancelOutputs(BigInt(coin.value), buyerAddress.pkScript))
     .send();
 ```
 
-Unilateral exit. The contract function takes both signatures. The page holds both keys, so `spendUnilateral` builds the leaf, sets the BIP68 seconds sequence from `exit`, and has the buyer and the seller each sign input 0 before `submitTx` and `finalizeTx`. The clock starts when the funding transaction is mined on Bitcoin, which is after unroll, not when the virtual coin appears.
+Call one of those, not both. `completeOutputs` pays `amount` to the seller and, when the surplus is above 330 sats, the rest to the buyer. `cancelOutputs` pays the whole coin to the buyer. `cancel()` takes no arguments. The emulator clock must be at or after `timeoutAt`.
 
-```ts
-const outputs = unilateralOutputs(BigInt(coin.value), seller.pkScript);
-const built = await contract.functions.unilateral().from(coin).to(outputs).build();
-// sign input 0 with the buyer key and the seller key, then submit
-```
-
-`spendComplete`, `spendCancel`, and `spendUnilateral` are those three calls.
+`unilateral` is the third function. It needs both the buyer and the seller signatures, which `.send()` does not collect, so the page builds the leaf in `spendUnilateral` (`app/src/spend.ts`), sets the BIP68 seconds sequence from `exit`, and signs input 0 with each key. That clock starts when the funding transaction is mined on Bitcoin, after unroll.
 
 ## SDK
 
@@ -127,7 +134,7 @@ pnpm dev
 
 The page is http://127.0.0.1:4173. `pnpm build` writes `dist/`.
 
-New escrow collects the parameters above and calls `prepareEscrow`. The funding address is `contract.address`, also copied as `bitcoin:?ark=<address>&amount=<sats>`. Release calls `spendComplete`. Refund calls `spendCancel`. Under Advanced, Unroll publishes the funding transaction, and Exit on chain calls `spendUnilateral` after the Bitcoin CSV. A spent escrow stays on the list as Refunded to the buyer or Released to the seller. Settings holds the oracle key. Remove from this browser, after Advanced, deletes the local card and can save it as `arkade-escrow.json` first.
+The page calls the same `client.contract` sequence from `prepareEscrow`, using keys stored in this browser instead of the three hex literals. The funding address is `contract.address`, also copied as `bitcoin:?ark=<address>&amount=<sats>`. Release calls `spendComplete`. Refund calls `spendCancel`. Under Advanced, Unroll publishes the funding transaction, and Exit on chain calls `spendUnilateral` after the Bitcoin CSV. A spent escrow stays on the list as Refunded to the buyer or Released to the seller. Settings holds the oracle key. Remove from this browser, after Advanced, deletes the local card and can save it as `arkade-escrow.json` first.
 
 
 ## GitHub Pages
