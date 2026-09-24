@@ -48,12 +48,12 @@ const exit = 512n;
 3. The three Mutinynet clients, then a session whose identity is the buyer key. `client.serverKey` is the operator key returned by that session. It is not one of the three secrets above.
 
 ```ts
-const arkProvider = new RestArkProvider("https://mutinynet.arkade.sh");
+const arkadeOperator = new RestArkProvider("https://mutinynet.arkade.sh");
 const indexer = new RestIndexerProvider("https://mutinynet.arkade.sh");
 const emulator = new RestEmulatorProvider("https://emulator.mutinynet.arkade.sh");
 
 const client = await arkade.Arkade.connect({
-    arkade: arkProvider,
+    arkade: arkadeOperator,
     indexer,
     emulator,
     identity: buyerKey,
@@ -61,7 +61,7 @@ const client = await arkade.Arkade.connect({
 });
 ```
 
-4. Public keys and payout scripts. `partyAPk` and `partyBPk` are the x-only keys of `buyerKey` and `sellerKey`. `partyAScript` and `partyBScript` are the tweaked keys of a normal Arkade wallet output (`DefaultVtxo`: the user and the server can spend together, or the user can exit). `pkScript` on the encoded address is what a later spend puts in the transaction output. The contract compares that output to the tweaked key.
+4. Public keys and payout scripts. `partyAPk` and `partyBPk` are the x-only keys of `buyerKey` and `sellerKey`. `partyAScript` and `partyBScript` are the 32-byte witness programs. On a taproot output that program is the tweaked output key, `buyerVtxo.tweakedPublicKey`, which `ArkAddress` stores as `vtxoTaprootKey`. The full script is `pkScript`: `OP_1` plus those 32 bytes. The compiled `complete` and `cancel` leaves run `OP_INSPECTOUTPUTSCRIPTPUBKEY`, `OP_DROP`, then `OP_EQUAL` against the `bytes32` parameter, so the constructor takes the 32-byte program and the spend output takes `pkScript`.
 
 ```ts
 const message = await sha256(new TextEncoder().encode("release-to-seller"));

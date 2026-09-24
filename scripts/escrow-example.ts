@@ -27,12 +27,12 @@ const amount = 10_000n;
 const timeoutAt = BigInt(Math.floor(Date.now() / 1000) - 60);
 const exit = 512n;
 
-const arkProvider = new RestArkProvider("https://mutinynet.arkade.sh");
+const arkadeOperator = new RestArkProvider("https://mutinynet.arkade.sh");
 const indexer = new RestIndexerProvider("https://mutinynet.arkade.sh");
 const emulator = new RestEmulatorProvider("https://emulator.mutinynet.arkade.sh");
 
 const client = await arkade.Arkade.connect({
-    arkade: arkProvider,
+    arkade: arkadeOperator,
     indexer,
     emulator,
     identity: buyerKey,

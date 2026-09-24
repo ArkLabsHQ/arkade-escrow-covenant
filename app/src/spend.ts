@@ -209,7 +209,7 @@ export interface EscrowFacts {
 /**
  * Indexer read for one escrow address.
  * `getVtxos` returns spent and unspent vtxos (`isSpent`, `spentBy`, `arkTxId`, `isUnrolled`).
- * `getVirtualTxs` returns the checkpoint and ark transaction PSBTs. `spentBy` is the checkpoint;
+ * `getVirtualTxs` returns the checkpoint and Arkade transaction PSBTs. `spentBy` is the checkpoint;
  * its `tapLeafScript` is the cancel, complete, or unilateral leaf.
  * An unrolled coin that Bitcoin has spent is read with Esplora `getTxOutspends` and `getRawTransaction`.
  */
@@ -234,10 +234,10 @@ export function arkadeAddressUrl(spaceUrl: string, address: string): string {
 
 /** BIP321 pay link for an Arkade address. `amount` is an integer number of satoshis. */
 export function bip321FundingUri(address: string, amount: string | number | bigint): string {
-    const ark = address.trim();
+    const arkadeAddress = address.trim();
     const sats = canonicalSats(amount);
-    if (!ark || sats === null) return "";
-    return `bitcoin:?ark=${encodeURIComponent(ark)}&amount=${encodeURIComponent(sats)}`;
+    if (!arkadeAddress || sats === null) return "";
+    return `bitcoin:?ark=${encodeURIComponent(arkadeAddress)}&amount=${encodeURIComponent(sats)}`;
 }
 
 function canonicalSats(amount: string | number | bigint): string | null {
@@ -255,7 +255,7 @@ export interface DemoNetwork {
     name: "mutinynet";
     label: string;
     network: Network;
-    arkUrl: string;
+    arkadeUrl: string;
     emulatorUrl: string;
     walletUrl: string;
     /** Arkade explorer origin. Address pages are `${spaceUrl}/address/…`. */
@@ -269,7 +269,7 @@ export const DEMO_NETWORKS: DemoNetwork[] = [
         name: "mutinynet",
         label: "Mutinynet",
         network: networks.mutinynet,
-        arkUrl: "https://mutinynet.arkade.sh",
+        arkadeUrl: "https://mutinynet.arkade.sh",
         emulatorUrl: "https://emulator.mutinynet.arkade.sh",
         walletUrl: "https://mutinynet.arkade.money",
         spaceUrl: "https://explorer.mutinynet.arkade.sh",
@@ -430,7 +430,7 @@ export function lastEscrowAddress(): string {
 export async function vtxosForAddress(demo: DemoNetwork, address: string): Promise<VirtualCoin[]> {
     const decoded = ArkAddress.decode(address.trim());
     const script = `5120${hex.encode(decoded.vtxoTaprootKey)}`;
-    const { vtxos } = await new RestIndexerProvider(demo.arkUrl).getVtxos({ scripts: [script] });
+    const { vtxos } = await new RestIndexerProvider(demo.arkadeUrl).getVtxos({ scripts: [script] });
     return vtxos;
 }
 
@@ -447,7 +447,7 @@ function covenantScript(name: "cancel" | "complete", args: CovenantArgs): Uint8A
 }
 
 async function virtualTxPayloads(demo: DemoNetwork, ids: string[]): Promise<string[]> {
-    const indexer = new RestIndexerProvider(demo.arkUrl);
+    const indexer = new RestIndexerProvider(demo.arkadeUrl);
     const out: string[] = [];
     let pageIndex = 0;
     for (;;) {
@@ -652,7 +652,7 @@ export function payoutFromAddress(address: string, hrp: string, serverKey: Uint8
 export interface PreparedEscrow {
     demo: DemoNetwork;
     contract: arkade.ArkadeContract;
-    ark: RestArkProvider;
+    arkade: RestArkProvider;
     emulatorVersion: string;
     message: Uint8Array;
     oracle: SingleKey;
@@ -755,7 +755,7 @@ export async function unrollOnce(
     coin: { txid: string; vout: number },
     key: SingleKey,
 ): Promise<UnrollProgress> {
-    const indexer = new RestIndexerProvider(demo.arkUrl);
+    const indexer = new RestIndexerProvider(demo.arkadeUrl);
     const explorer = new EsploraProvider(demo.explorerUrl);
     const bumper = await feeWallet(demo, key);
     const session = await Unroll.Session.create({ txid: coin.txid, vout: coin.vout }, bumper, explorer, indexer);
@@ -781,7 +781,7 @@ export async function listUnrollHops(
     demo: DemoNetwork,
     coin: { txid: string; vout: number },
 ): Promise<UnrollHop[]> {
-    const indexer = new RestIndexerProvider(demo.arkUrl);
+    const indexer = new RestIndexerProvider(demo.arkadeUrl);
     const explorer = new EsploraProvider(demo.explorerUrl);
     const { chain } = await indexer.getVtxoChain(coin);
     const hops: UnrollHop[] = [];
@@ -851,7 +851,7 @@ export async function spendExitOnchain(
 
 /** Operator unilateral exit delay. Public arkd requires the escrow exit to be at least this. */
 export async function minimumExitDelay(demo: DemoNetwork): Promise<bigint> {
-    return (await new RestArkProvider(demo.arkUrl).getInfo()).unilateralExitDelay;
+    return (await new RestArkProvider(demo.arkadeUrl).getInfo()).unilateralExitDelay;
 }
 
 export async function prepareEscrow(input: {
@@ -863,12 +863,12 @@ export async function prepareEscrow(input: {
     exit: bigint;
     keys: DemoKeys;
 }): Promise<PreparedEscrow> {
-    const ark = new RestArkProvider(input.demo.arkUrl);
-    const indexer = new RestIndexerProvider(input.demo.arkUrl);
+    const arkadeOperator = new RestArkProvider(input.demo.arkadeUrl);
+    const indexer = new RestIndexerProvider(input.demo.arkadeUrl);
     const emulator = new RestEmulatorProvider(input.demo.emulatorUrl);
     const [client, emulatorInfo, message, info] = await Promise.all([
         arkade.Arkade.connect({
-            arkade: ark,
+            arkade: arkadeOperator,
             indexer,
             emulator,
             identity: input.keys.buyer,
@@ -879,7 +879,7 @@ export async function prepareEscrow(input: {
             return response.json() as Promise<{ version?: string }>;
         }),
         releaseMessage(),
-        ark.getInfo(),
+        arkadeOperator.getInfo(),
     ]);
     // Public arkd rejects a block CSV on an exit leaf, and a seconds delay
     // shorter than the operator's own unilateral exit.
@@ -913,7 +913,7 @@ export async function prepareEscrow(input: {
     return {
         demo: input.demo,
         contract,
-        ark,
+        arkade: arkadeOperator,
         emulatorVersion: emulatorInfo.version ?? "",
         message,
         oracle: input.keys.oracle,
@@ -966,13 +966,13 @@ export async function spendUnilateral(
     setSequence(built.arkTx, sequence);
     for (const checkpoint of built.checkpoints) setSequence(checkpoint, sequence);
 
-    let arkTx = built.arkTx;
+    let arkadeTx = built.arkTx;
     for (const key of [prepared.buyer, prepared.seller]) {
-        arkTx = await key.sign(arkTx, [0]);
+        arkadeTx = await key.sign(arkadeTx, [0]);
     }
     const submitted = built.checkpoints.map((checkpoint) => base64.encode(checkpoint.toPSBT()));
-    const response = await prepared.ark.submitTx(base64.encode(arkTx.toPSBT()), submitted);
-    assertSubmittedArkTxid(response, arkTx, "submitTx");
+    const response = await prepared.arkade.submitTx(base64.encode(arkadeTx.toPSBT()), submitted);
+    assertSubmittedArkTxid(response, arkadeTx, "submitTx");
     const matched = matchServerCheckpoints(
         response.signedCheckpointTxs,
         built.checkpoints,
@@ -987,7 +987,7 @@ export async function spendUnilateral(
         }
         finalCheckpoints.push(base64.encode(signed.toPSBT()));
     }
-    await prepared.ark.finalizeTx(response.arkTxid, finalCheckpoints);
+    await prepared.arkade.finalizeTx(response.arkTxid, finalCheckpoints);
     return response.arkTxid;
 }
 
