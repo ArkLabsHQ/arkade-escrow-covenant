@@ -71,7 +71,7 @@ const client = await arkade.Arkade.connect({
 });
 ```
 
-4. Public keys and payout scripts. `partyAPk` and `partyBPk` are the x-only keys of `buyerKey` and `sellerKey`. `partyAScript` and `partyBScript` are the 32-byte witness programs. On a taproot output that program is the tweaked output key, `buyerVtxo.tweakedPublicKey`, which `ArkAddress` stores as `vtxoTaprootKey`. The full script is `pkScript`: `OP_1` plus those 32 bytes. The compiled `complete` and `cancel` leaves run `OP_INSPECTOUTPUTSCRIPTPUBKEY`, `OP_DROP`, then `OP_EQUAL` against the `bytes32` parameter, so the constructor takes the 32-byte program and the spend output takes `pkScript`.
+4. Public keys and payout scripts. 
 
 ```ts
 const message = await sha256(new TextEncoder().encode("release-to-seller"));
