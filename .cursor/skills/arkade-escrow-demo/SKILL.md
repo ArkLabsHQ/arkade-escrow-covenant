@@ -3,7 +3,7 @@ name: arkade-escrow-demo
 description: >
   Build or change the Arkade Mutinynet escrow demo: load the compiled covenant,
   spend complete, cancel, and unilateral through the TypeScript SDK, and show
-  funded versus closed coins on the page. Use when editing escrow.ark,
+  funded versus closed coins on the page. Use when editing the Arkade escrow contract,
   escrowProgram, prepareEscrow, spendComplete, spendCancel, spendUnilateral,
   escrowFacts, BIP321 pay links, the escrow sheet, or indexer updates.
 ---
@@ -14,7 +14,7 @@ This repo is the demo. Extend the files below. Do not add a second spend stack, 
 
 Read these before editing:
 
-- `contracts/escrow.ark` and `contracts/escrow.md` — the three functions and what each pays
+- the Arkade escrow contract and `contracts/escrow.md` — the three functions and what each pays
 - `app/src/program.ts` — `escrowProgram()`, the only runtime change to the artifact
 - `app/src/outputs.ts` — `completeOutputs` and `cancelOutputs`
 - `app/src/spend.ts` — `prepareEscrow`, `escrowFacts`, the three spends
@@ -38,9 +38,9 @@ Party A is the buyer. Party B is the seller. An oracle can release `amount` to t
 
 ## Setup, then parameters
 
-`escrowProgram()` is a setup step, once per process. It reads `contracts/escrow.artifact.json` with `arkade.programFromArtifact`. It does not compile `escrow.ark`.
+`escrowProgram()` is a setup step, once per process. It reads `contracts/escrow.artifact.json` with `arkade.programFromArtifact`. It does not compile the Arkade contract source.
 
-`arkadec` emits `older(exit)` as a block CSV. Public arkd rejects that on an exit leaf. The only edit is to set that same `$exit` integer to BIP68 seconds. `pnpm check` fails if anything else changes.
+`arkadec` emits `older(exit)` as a block CSV. The public Arkade operator rejects that on an exit leaf. The only edit is to set that same `$exit` integer to BIP68 seconds. `pnpm check` fails if anything else changes.
 
 Pass the program into `client.contract`. The constructor fields are not the pasted payout addresses.
 

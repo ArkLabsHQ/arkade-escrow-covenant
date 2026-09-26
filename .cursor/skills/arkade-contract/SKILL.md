@@ -3,20 +3,20 @@ name: arkade-contract
 description: >
   Load an arkadec artifact and spend any Arkade contract through the TypeScript
   SDK. Use when starting a new contract project (an options vault, an escrow, or
-  another covenant), or when writing a .ark file, programFromArtifact,
+  another covenant), or when writing an Arkade contract, programFromArtifact,
   client.contract, constructor arguments, covenant outputs, tapleaf spends,
   vtxo scripts, or watching a contract with no user wallet.
 ---
 
 # Arkade compiler and SDK
 
-Use this for any contract, including a new options vault. Compile offline. Spend the artifact. The function names on `contract.functions` are the function names in the `.ark` file.
+Use this for any contract, including a new options vault. Compile offline. Spend the artifact. The function names on `contract.functions` are the function names in the Arkade contract.
 
-The escrow in this repo is one worked example of the same steps: `contracts/escrow.ark`, `app/src/program.ts`, `scripts/escrow-example.ts`.
+The escrow in this repo is one worked example of the same steps: the escrow contract, `app/src/program.ts`, `scripts/escrow-example.ts`.
 
 ## 1. Compile once
 
-`arkadec` turns `contract.ark` into `contract.artifact.json`. Commit that JSON. The running program loads it. It does not compile `.ark`.
+`arkadec` turns the Arkade contract into `contract.artifact.json`. Commit that JSON. The running program loads it. It does not compile the contract source.
 
 ```ts
 import { arkade } from "@arkade-os/sdk";
@@ -31,11 +31,11 @@ The package lives in `packages/ts-sdk` of a private monorepo, so a git dependenc
 
 That commit leaves opcodes `0xdb`–`0xdf` unassigned. `checkTime` compiles to `OP_CHECKTIME` (`0xdc`), which is on SDK master via [ts-sdk#967](https://github.com/arkade-os/ts-sdk/pull/967). `vendor/958-checktime.patch` is that opcode delta. The tarball is the #958 branch plus the patch. A new project that calls `checkTime` needs both.
 
-`programFromArtifact` keeps what the compiler emitted. If the live operator rejects one of those choices, change that field and fail the build when anything else differs. The known case: `older(n)` is emitted as a block CSV, and public arkd rejects a block-type exit leaf. Set that same integer to BIP68 seconds. Leave every other opcode alone.
+`programFromArtifact` keeps what the compiler emitted. If the live operator rejects one of those choices, change that field and fail the build when anything else differs. The known case: `older(n)` is emitted as a block CSV, and the public Arkade operator rejects a block-type exit leaf. Set that same integer to BIP68 seconds. Leave every other opcode alone.
 
 ## 2. Open a session
 
-Three clients, plus a contract manager. The operator is `arkadeOperator`, not `ark` or `arkProvider`. There is no user wallet in this session.
+Three clients, plus a contract manager. Name the operator `arkadeOperator`. There is no user wallet in this session.
 
 ```ts
 import {
@@ -67,11 +67,11 @@ Leave `identity` off. `ReadonlyWallet` is the wrong stand-in: it requires a pubk
 
 `client.serverKey` is the operator key returned by that session. It is part of the taproot tree. It is not one of the keys named in the contract. The emulator is required only when a path actually spends.
 
-## 3. Fill constructor arguments from the Ark types
+## 3. Fill constructor arguments from the Arkade types
 
-`client.contract(program, args)` stores these in the taproot tree. Match the type in the `.ark` header, not the shape of a UI field.
+`client.contract(program, args)` stores these in the taproot tree. Match the type in the Arkade contract header, not the shape of a UI field.
 
-| Ark type | Pass this |
+| Arkade type | Pass this |
 | --- | --- |
 | `pubkey` | `await key.xOnlyPublicKey()`. 32 bytes. |
 | `bytes32` hash | `sha256(preimage)`. The signer signs the preimage. The contract stores the hash. |
@@ -83,7 +83,7 @@ A witness program is `DefaultVtxo.Script({ pubKey, serverPubKey: client.serverKe
 
 That is not the output script. The output script is `pkScript`: `OP_1` pushed in front of the same 32 bytes, hex `5120…`. Use `pkScript` on transaction outputs. The contract manager subscribes to that same script. Use `tweakedPublicKey` only where the contract compares the 32-byte program.
 
-A receive address is `vtxo.address(network.hrp, client.serverKey)`. `address` needs the operator key. The address is where a spend pays. It does not replace a `pubkey` argument. Decode it with `ArkAddress.decode` and check the HRP and `serverPubKey` before using it.
+A receive address is `vtxo.address(network.hrp, client.serverKey)`. `address` needs the operator key. The address is where a spend pays. It does not replace a `pubkey` argument. Decode the Arkade address and check the HRP and server key before using it.
 
 ## 4. Spend a named function
 
@@ -100,7 +100,7 @@ await contract.functions
 
 `.from` / `.to` / `.send()` is the path that talks to the operator and the emulator. It signs with the session identity. It does not collect every key named in the leaf.
 
-Call the function with the inputs declared in `.ark`, in order. A function with no inputs is `functions.cancel()`. Outputs have to satisfy that function's `tx.outputs[i]` checks: value and `scriptPubKey`. If the contract stored a 32-byte witness program, that is what the check sees, while the output you build still carries the full `pkScript`.
+Call the function with the inputs declared in the Arkade contract, in order. A function with no inputs is `functions.cancel()`. Outputs have to satisfy that function's `tx.outputs[i]` checks: value and `scriptPubKey`. If the contract stored a 32-byte witness program, that is what the check sees, while the output you build still carries the full `pkScript`.
 
 A leaf that needs several local signatures, and no server, is not a `.send()`. Take the leaf from the compiled program, set the input sequence when the leaf has `older`, sign input 0 with each required key, and broadcast the Bitcoin or Arkade transaction yourself.
 
