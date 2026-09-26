@@ -11,7 +11,7 @@ An Arkade escrow for Mutinynet. `contracts/escrow.ark` is the source. `contracts
 | `app/src/outputs.ts` | Output lists those functions accept |
 | `app/src/spend.ts` | `prepareEscrow`, then `spendComplete`, `spendCancel`, `spendUnilateral` |
 
-`arkadec` compiles `older(exit)` as a block CSV. Public arkd rejects that on an exit leaf. `escrowProgram()` is the only change: the same `$exit` integer, with the BIP68 seconds bit set. `pnpm check` fails if anything else differs from `programFromArtifact`.
+`arkadec` compiles `older(exit)` as a block CSV. The public Arkade operator rejects that on an exit leaf. `escrowProgram()` is the only change: the same `$exit` integer, with the BIP68 seconds bit set. `pnpm check` fails if anything else differs from `programFromArtifact`.
 
 The artifact was produced by arkade-compiler `c37c9da`. `updatedAt` inside the JSON is the compiler's timestamp.
 
@@ -130,9 +130,9 @@ Call one of those, not both. `completeOutputs` pays `amount` to the seller and, 
 
 ## SDK
 
-`@arkade-os/sdk` is vendored from [arkade-os/ts-sdk#958](https://github.com/arkade-os/ts-sdk/pull/958), commit `411b43f` (`cursor/compiler-artifact-program-bridge-0188`). That branch is `programFromArtifact`. The package lives in `packages/ts-sdk` of a private monorepo root, so a git dependency does not install it. The tarball is `vendor/arkade-os-sdk-0.4.74-411b43f.tgz`.
+`programFromArtifact` is on SDK master, merged in [arkade-os/ts-sdk#958](https://github.com/arkade-os/ts-sdk/pull/958). The package lives in `packages/ts-sdk` of the monorepo, so a git dependency does not install it, and npm `0.4.76` does not include it yet. The tarball is `vendor/arkade-os-sdk-0.4.74-411b43f.tgz`.
 
-That commit leaves opcodes `0xdb`–`0xdf` unassigned. `cancel` compiles to `OP_CHECKTIME` (`0xdc`), which is already on master via [ts-sdk#967](https://github.com/arkade-os/ts-sdk/pull/967). `vendor/958-checktime.patch` is that two-opcode delta, and the tarball is the branch plus the patch. `PUSHEXPIRY` (`0xdb`) is included with it and is unused by this contract.
+`cancel` compiles to `OP_CHECKTIME`. The SDK supports that opcode. There is no opcode patch.
 
 ## Run
 

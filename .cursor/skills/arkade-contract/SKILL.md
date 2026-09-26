@@ -25,11 +25,9 @@ import artifact from "./contract.artifact.json" with { type: "json" };
 const program = arkade.programFromArtifact(artifact);
 ```
 
-`programFromArtifact` is not in the published SDK. It is [arkade-os/ts-sdk#958](https://github.com/arkade-os/ts-sdk/pull/958), commit `411b43f`, branch `cursor/compiler-artifact-program-bridge-0188`. Install that build. A release of `@arkade-os/sdk` from master will not have the function.
+`programFromArtifact` is on SDK master, merged in [arkade-os/ts-sdk#958](https://github.com/arkade-os/ts-sdk/pull/958). The package lives in `packages/ts-sdk` of the monorepo, so a git dependency does not install it, and the npm release `0.4.76` does not include it yet. This repo vendors that master build as `vendor/arkade-os-sdk-0.4.74-411b43f.tgz`.
 
-The package lives in `packages/ts-sdk` of a private monorepo, so a git dependency does not install it. This repo vendors it as `vendor/arkade-os-sdk-0.4.74-411b43f.tgz`.
-
-That commit leaves opcodes `0xdb`–`0xdf` unassigned. `checkTime` compiles to `OP_CHECKTIME` (`0xdc`), which is on SDK master via [ts-sdk#967](https://github.com/arkade-os/ts-sdk/pull/967). `vendor/958-checktime.patch` is that opcode delta. The tarball is the #958 branch plus the patch. A new project that calls `checkTime` needs both.
+`checkTime` compiles to `OP_CHECKTIME`. The SDK supports that opcode. Do not apply a patch for it.
 
 `programFromArtifact` keeps what the compiler emitted. If the live operator rejects one of those choices, change that field and fail the build when anything else differs. The known case: `older(n)` is emitted as a block CSV, and the public Arkade operator rejects a block-type exit leaf. Set that same integer to BIP68 seconds. Leave every other opcode alone.
 
