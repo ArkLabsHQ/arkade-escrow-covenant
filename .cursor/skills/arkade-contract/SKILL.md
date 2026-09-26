@@ -5,7 +5,7 @@ description: >
   SDK. Use when starting a new contract project (an options vault, an escrow, or
   another covenant), or when writing a .ark file, programFromArtifact,
   client.contract, constructor arguments, covenant outputs, tapleaf spends,
-  vtxo scripts, or indexer subscriptions.
+  vtxo scripts, or watching a contract with no user wallet.
 ---
 
 # Arkade compiler and SDK
@@ -35,23 +35,37 @@ That commit leaves opcodes `0xdb`–`0xdf` unassigned. `checkTime` compiles to `
 
 ## 2. Open a session
 
-Three clients. The operator is `arkadeOperator`, not `ark` or `arkProvider`.
+Three clients, plus a contract manager. The operator is `arkadeOperator`, not `ark` or `arkProvider`. There is no user wallet in this session.
 
 ```ts
+import {
+    ContractManager,
+    InMemoryContractRepository,
+    InMemoryWalletRepository,
+} from "@arkade-os/sdk";
+
 const arkadeOperator = new RestArkProvider(arkadeUrl);
 const indexer = new RestIndexerProvider(arkadeUrl);
 const emulator = new RestEmulatorProvider(emulatorUrl);
+
+const manager = await ContractManager.create({
+    indexerProvider: indexer,
+    contractRepository: new InMemoryContractRepository(),
+    walletRepository: new InMemoryWalletRepository(),
+});
 
 const client = await arkade.Arkade.connect({
     arkade: arkadeOperator,
     indexer,
     emulator,
-    identity: signerKey, // a SingleKey the server session uses
+    contractManager: manager,
     network: networks.mutinynet,
 });
 ```
 
-`client.serverKey` is the operator key returned by that session. It is not one of the keys in the contract.
+Leave `identity` off. `ReadonlyWallet` is the wrong stand-in: it requires a pubkey and then watches that pubkey's receive and boarding scripts. Pass `identity` only when a leaf needs this session to sign.
+
+`client.serverKey` is the operator key returned by that session. It is part of the taproot tree. It is not one of the keys named in the contract. The emulator is required only when a path actually spends.
 
 ## 3. Fill constructor arguments from the Ark types
 
@@ -67,7 +81,7 @@ const client = await arkade.Arkade.connect({
 
 A witness program is `DefaultVtxo.Script({ pubKey, serverPubKey: client.serverKey, csvTimelock }).tweakedPublicKey`.
 
-That is not the output script. The output script is `pkScript`: `OP_1` pushed in front of the same 32 bytes, hex `5120…`. Use `pkScript` on transaction outputs, on `getVtxos({ scripts })`, and on `subscribeForScripts`. Use `tweakedPublicKey` only where the contract compares the 32-byte program.
+That is not the output script. The output script is `pkScript`: `OP_1` pushed in front of the same 32 bytes, hex `5120…`. Use `pkScript` on transaction outputs. The contract manager subscribes to that same script. Use `tweakedPublicKey` only where the contract compares the 32-byte program.
 
 A receive address is `vtxo.address(network.hrp, client.serverKey)`. `address` needs the operator key. The address is where a spend pays. It does not replace a `pubkey` argument. Decode it with `ArkAddress.decode` and check the HRP and `serverPubKey` before using it.
 
@@ -90,28 +104,29 @@ Call the function with the inputs declared in `.ark`, in order. A function with 
 
 A leaf that needs several local signatures, and no server, is not a `.send()`. Take the leaf from the compiled program, set the input sequence when the leaf has `older`, sign input 0 with each required key, and broadcast the Bitcoin or Arkade transaction yourself.
 
-## 5. Read the coins
+## 5. Watch the coins
 
-Ask the indexer with the full output script, not the 32-byte program:
+Register the contract. That stores the program, the constructor args, and the server and emulator keys, and adds the full `pkScript` to the manager's one subscription. Do not call `indexer.subscribeForScripts` as well.
 
 ```ts
-const { vtxos } = await indexer.getVtxos({
-    scripts: [hex.encode(contract.pkScript)],
+const contract = client.contract(program, args);
+await contract.register();
+
+const script = hex.encode(contract.pkScript);
+const stop = manager.onContractEvent((event) => {
+    if (event.type === "connection_reset" || event.contractScript !== script) return;
+    // vtxo_received: the contract was funded
+    // vtxo_spent: a function ran; the spending transaction's tapleaf says which
 });
 ```
 
-The same list contains spent and unspent coins. An empty unspent set does not mean the contract was never funded. `isSpent` / `spentBy` means some function already ran. The spending transaction's tapleaf tells you which one.
+`contract.getUtxos()` then reads the repository. It drops spent and unrolled coins, so an empty list does not mean the contract was never funded. The spent coin arrives on `vtxo_spent`. Its `spentBy` is the spending transaction.
 
-For a live update, subscribe once and refresh when a vtxo appears or is spent:
+`register()` of the same script is a no-op and does not fetch history again. If that first fetch fails, backfill with `manager.refreshVtxos({ scripts: [script], after: 0 })`.
 
-```ts
-const id = await indexer.subscribeForScripts([hex.encode(contract.pkScript)]);
-for await (const event of indexer.getSubscription(id, abort.signal)) {
-    if (event.newVtxos?.length || event.spentVtxos?.length || event.sweptVtxos?.length) {
-        // read getVtxos again
-    }
-}
-```
+`wallet.restore()` will not find this contract. Nothing in a seed derives the script. The repository row is the backup. The in-memory repositories above are empty after a restart, so `register()` again with the same program, args, and keys. A durable repository reloads the row when `ContractManager.create` runs. Rebuild with `arkade.ArkadeContract.fromContract(client, row)` so a later server key does not point the watcher at a different script.
+
+Do not set `metadata.genericallySpendable`. These coins stay out of a generic send.
 
 Do not poll Esplora or Mempool for a virtual transaction id. `GET /api/tx/<vtxo txid>` returns 404. That id is not a Bitcoin transaction. Ask Mempool only about a transaction that has been unrolled, and only when the user is looking at that exit.
 
@@ -121,4 +136,4 @@ Do not poll Esplora or Mempool for a virtual transaction id. `GET /api/tx/<vtxo 
 
 `older(n)` is a BIP68 CSV on the output being spent. The counter starts when that output is mined on Bitcoin, not when the virtual coin is created. Before unroll, the output does not exist on chain and the clock has not started. Read the operator minimum with `arkadeOperator.getInfo()` (`unilateralExitDelay`). The value is a multiple of 512.
 
-Arm the spend control as soon as the indexer read returns. Do not wait for a Bitcoin exit lookup before that. While that read is in flight, show a loader on the button instead of a grey disabled control.
+Arm the spend control as soon as `getUtxos()` returns. Do not wait for a Bitcoin exit lookup before that. While that read is in flight, show a loader on the button instead of a grey disabled control.
